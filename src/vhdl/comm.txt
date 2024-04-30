@@ -1,0 +1,80 @@
+INFO: (info.vhd) (READ ONLY)
+0x0000_0000-4: [4-byte-int] version: YYYYMMDDNN
+               (YYYY: year, MM: month, DD: day, NN: number)
+0x0000_0010:   [1-byte-int] max channel number (1, 2, 4, ..., 64, 128)
+0x0000_0011:   [flag] snapshot function ON/OFF
+0x0000_0012:   [1-byte-int] max trigger channel number (0, 1, 2, 4, ...)
+
+ADC: (spi_master_wrapper.vhd, adc.vhd)
+0x1000_00??: ADC register via SPI
+0x1200_0000: [flag] channel A<->B swap
+0x1200_0100-6: [1-byte-int/7ch] Port A LSB value of delay
+0x1200_0200-6: [1-byte-int/7ch] Port A MSB value of delay (0 or 1)
+0x1200_0300-6: [1-byte-int/7ch] Port B LSB value of delay
+0x1200_0400-6: [1-byte-int/7ch] Port B MSB value of delay (0 or 1)
+
+ADC_CLOCK_MAN: (adc_clock_man.v)
+0x13??_????: redirected to AXI interface of the clocking wizard core.
+
+COUNTUP_MAN: (countup_man.v)
+0x1400_0000: channel A status register [0 0 0 0 0 0 irq(ro) reset(wo)]
+0x1400_0001: channel A counter LSB
+0x1400_0002: channel A counter MSB
+0x1400_0003: channel A wrong data LSB
+0x1400_0004: channel A wrong data MSB
+0x1400_0100: cahnnel B status register [0 0 0 0 0 0 irq(ro) reset(wo)]
+0x1400_0101: channel B counter LSB
+0x1400_0102: channel B counter MSB
+0x1400_0103: channel B wrong data LSB
+0x1400_0104: channel B wrong data MSB
+
+DAC: (spi_master_wrapper.vhd, dac.vhd)
+0x2000_00??: DAC register via SPI
+0x2200_0000: [flag] txenable pin
+0x2200_0001: [trig] frame pin (write only)
+0x2200_0002: [flag] channel A<->B swap
+0x2200_0003: [flag] test pattern mode
+0x2200_0100-8: [1-byte-int/9ch] LSB value of delay (8 is for frame).
+0x2200_0200-8: [1-byte-int/9ch] MSB value of delay (8 is for frame).
+0x2300_0100: test pattern: ch.a upper
+0x2300_0101: test pattern: ch.a lower
+0x2300_0102: test pattern: ch.b upper
+0x2300_0103: test pattern: ch.b lowers
+
+SNAP: (snapshot.vhd)
+0x3000_0000: [flag] snapshot start(1)/stop(0)
+0x3000_0001: [trig] time reset for snapshot (write only)
+0x3000_0002: [trig] fifo reset for snapshot (write only)
+0x3100_0000: input source (0:DDS, 1:DAC, 2:ADC, 3:IQ, 4:TEST(count up))
+0x3100_0001: input channel (only DDS, IQ mode)
+
+DDS: (pinc_man.vhd)
+0x4000_0000:   [trig] set phase increment value (write only)
+0x4000_0001:   [flag] enable of periodic phase sync
+0x4100_CC00-3: phase increment (32bit) of channel 'CC'
+0x4100_CC10-3: phase offset    (32bit) of channel 'CC'
+0x4101_0000-3: span of periodic phase sync (10 - 200000)
+
+READOUT: (iq_reader.vhd)
+0x5000_0000: [flag] normal readout start(1)/stop(0)
+0x5000_0001: [trig] time reset for normal readout (write only)
+0x5000_0002: [flag] check sitcp-fifo full (error(1), ok(0)) (write '0' for clear)
+0x5000_0010: [1-byte-int] read channel width (1, 2, ..., MAX_CH)
+
+DOWNSAMPLE: (iq_reader.vhd)
+0x6100_0000-3: [4-byte-int] down sample reset cycle (20 - 200000) (> packet length)
+
+TRIGGER: (trigger.vhd)
+0x7000_0000:   [trig] trigger_mode start(1)/reset(0)
+0x7000_0010-1: [2-byte-int] data length before trigger (0--1000)
+0x7000_0020-1: [2-byte-int] trigger threshold in time axis (0--1000)
+0x7100_CC00:   [flag] trigger enable of channel 'CC'
+0x7100_CC10-7: [8-byte-int] I-value threshold minimum of channel 'CC' (56 bit)
+0x7100_CC20-7: [8-byte-int] Q-value threshold minimum of channel 'CC' (56 bit)
+0x7100_CC30-7: [8-byte-int] I-value threshold maximum of channel 'CC' (56 bit)
+0x7100_CC40-7: [8-byte-int] Q-value threshold maximum of channel 'CC' (56 bit)
+
+DEBUG: (rbcp_debug.vhd)
+0xf000_0000: rbcp read/write test
+0xf100_00??: probe for debug (for developer)
+0xf200_00??: drive for debug (for developer)

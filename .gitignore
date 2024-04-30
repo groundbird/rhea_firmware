@@ -1,0 +1,12 @@
+rhea-fpga/*
+ip/**/*.dcp
+ip/**/*.veo
+ip/**/*.vho
+ip/**/*.tcl
+ip/**/*.txt
+ip/**/*.v
+ip/**/*.vh
+ip/**/*.vhd
+ip/**/*.vhdl
+ip/**/*.xdc
+ip/**/*.xml

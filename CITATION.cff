@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Oguri"
+  given-names: "Shugo"
+  orcid: "https://orcid.org/0000-0002-5902-2672"
+- family-names: "Honda"
+  given-names: "Shunsuke"
+  orcid: "https://orcid.org/0000-0002-0403-3729"
+- family-names: "Suzuki"
+  given-names: "Junya"
+  orcid: "https://orcid.org/0000-0001-6816-8123"
+- family-names: "Ikemitsu"
+  given-names: "Takuji"
+title: "RHEA_comm"
+version: 1.0.0
+doi: 
+date-released: 2024-04-30
+url: "https://github.com/groundbird/rhea_firmware"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Suzuki"
+    given-names: "Junya"
+    orcid: "https://orcid.org/0000-0001-6816-8123"
+  - family-names: "Ishitsuka"
+    given-names: "Hikaru"
+  - family-names: "Lee"
+    given-names: "Kyungmin"
+    orcid: "https://orcid.org/0000-0002-2247-3728"
+  - family-names: "Oguri"
+    given-names: "Shugo"
+    orcid: "https://orcid.org/0000-0002-5902-2672"
+  - family-names: "Tajima"
+    given-names: "Osamu"
+  - family-names: "Tomita"
+    given-names: "Nozomu"
+  - family-names: "Won"
+    given-names: "Eunil"
+    orcid: "https://orcid.org/0000-0002-4245-7442"
+  doi: "10.1007/s10909-018-2033-x"
+  journal: "Journal of Low Temperature Physics"
+  month: 7
+  start: 562 # First page number
+  end: 569 # Last page number
+  title: "Development of a Data Acquisition System for Kinetic Inductance Detectors: Wide Dynamic Range and High Sampling Rate for Astronomical Observation"
+  volume: 193
+  year: 2018

@@ -1,0 +1,4 @@
+prog/data/*
+*.pyc
+*~
+vhdl/tmp
