@@ -1,6 +1,6 @@
 [submodule "src/XCKUSiTCPlib32k_11V"]
 	path = src/XCKUSiTCPlib32k_11V
-	url = git@github.com:BeeBeansTechnologies/SiTCP_Netlist_for_Kintex_UltraScale.git
+	url = https://github.com/BeeBeansTechnologies/SiTCP_Netlist_for_Kintex_UltraScale.git
 [submodule "src/axi_sitcp"]
 	path = src/axi_sitcp
-	url = git@github.com:dixilo/axi_sitcp.git
+	url = https://github.com/dixilo/axi_sitcp.git
