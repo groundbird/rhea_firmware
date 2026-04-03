@@ -132,8 +132,12 @@ module lc04_rw_test_top (
     (* mark_debug = "true" *) reg [2:0] ts = TS_RESET;
     (* mark_debug = "true" *) reg [6:0] wr_idx = 7'd0;     // current push index
 
-    reg       wr_push        = 1'b0;   // single-cycle ROM_WE_IN pulse
+    wire      wr_push;                 // single-cycle ROM_WE_IN pulse (combinatorial)
     reg       reader_release = 1'b0;   // 1 = release reader from reset
+
+    // wr_push is high every cycle while in TS_WR_PUSH so that addr 0 is
+    // captured on the very first cycle before wr_idx is incremented.
+    assign wr_push = (ts == TS_WR_PUSH);
 
     wire writer_done, writer_error;
     wire reader_done, reader_error;
@@ -142,11 +146,8 @@ module lc04_rw_test_top (
         if (rst) begin
             ts             <= TS_RESET;
             wr_idx         <= 7'd0;
-            wr_push        <= 1'b0;
             reader_release <= 1'b0;
         end else begin
-            wr_push <= 1'b0;   // default: no push
-
             case (ts)
                 TS_RESET: begin
                     ts <= TS_STARTUP;
@@ -159,7 +160,6 @@ module lc04_rw_test_top (
                 // Push one entry per clock cycle into LC04_WRITER buffer.
                 // TEST_BYTES = 64 < buffer depth 128, so no wrap-around.
                 TS_WR_PUSH: begin
-                    wr_push <= 1'b1;
                     if (wr_idx == TEST_BYTES[6:0] - 7'd1) begin
                         ts <= TS_WR_WAIT;   // last entry pushed this cycle
                     end else begin
