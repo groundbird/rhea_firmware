@@ -12,9 +12,11 @@ set_property PACKAGE_PIN AK17 [get_ports {PL_CLK0_P}]
 set_property PACKAGE_PIN AK16 [get_ports {PL_CLK0_N}]
 set_property IOSTANDARD  LVDS [get_ports {PL_CLK0_P PL_CLK0_N}]
 
-# Primary 200 MHz clock defined at the BUFG output to avoid redefinition warnings.
-# The MMCM input clock is derived automatically from this BUFG.
-create_clock -name sys_clk200 -period 5.000 [get_pins u_bufg_clk200/O]
+# Primary clock defined at IBUFDS output (= MMCM CLKIN1).
+# Placing it here lets Vivado trace through the MMCM and auto-derive all outputs.
+# u_bufg_clk200 (CLKOUT2), u_bufg_clk125 (CLKOUT0), u_bufg_clk125_90 (CLKOUT1)
+# are each named below with create_generated_clock.
+create_clock -name clk200_in -period 5.000 [get_pins u_ibufds_clk200/O]
 
 # -----------------------------------------------------------------------------
 # Reset button (active-low)  B65_T2U N27
@@ -54,19 +56,26 @@ set_property PACKAGE_PIN AE31 [get_ports {PHY_MDIO}]
 set_property PACKAGE_PIN V32  [get_ports {PHY_RESET}]
 
 # -----------------------------------------------------------------------------
-# Generated clocks (from MMCM outputs after BUFGs)
+# Generated clocks – named explicitly at each BUFG output.
+# -source points to the MMCM output pin that feeds the BUFG input.
+# -master_clock must match the primary clock driving MMCM CLKIN1.
 # -----------------------------------------------------------------------------
+create_generated_clock -name sys_clk200 \
+    -source [get_pins u_mmcm/CLKOUT2] \
+    -master_clock clk200_in \
+    [get_pins u_bufg_clk200/O]
+
 create_generated_clock -name clk125 \
     -source [get_pins u_mmcm/CLKOUT0] \
-    -master_clock sys_clk200 \
+    -master_clock clk200_in \
     [get_pins u_bufg_clk125/O]
 
 create_generated_clock -name clk125_90 \
     -source [get_pins u_mmcm/CLKOUT1] \
-    -master_clock sys_clk200 \
+    -master_clock clk200_in \
     [get_pins u_bufg_clk125_90/O]
 
-# RXC through BUFG
+# RXC through BUFG (asynchronous to MMCM clocks)
 create_generated_clock -name rxc_bufg \
     -source [get_ports {PHY_RXC}] \
     -master_clock rgmii_rxc \
@@ -74,12 +83,11 @@ create_generated_clock -name rxc_bufg \
 
 # -----------------------------------------------------------------------------
 # Clock domain relationships
-# sys_clk200 / clk125 / clk125_90 are synchronous (same MMCM).
+# MMCM outputs (sys_clk200 / clk125 / clk125_90) are synchronous.
 # rgmii_rxc / rxc_bufg are asynchronous (external PHY clock).
-# SiTCP handles its own CDC with EDF_SiTCP_constraints.xdc.
 # -----------------------------------------------------------------------------
 set_clock_groups -asynchronous \
-    -group [get_clocks {sys_clk200 clk125 clk125_90}] \
+    -group [get_clocks {clk200_in sys_clk200 clk125 clk125_90}] \
     -group [get_clocks {rgmii_rxc rxc_bufg}]
 
 # -----------------------------------------------------------------------------
