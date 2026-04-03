@@ -173,7 +173,7 @@ architecture Behavioral of sitcp is
       signal_detect        : in  std_logic);
   end component gig_ethernet_pcs_pma_2;
 
-  component AT93C46_M24C08 is
+  component AT93C46_LC04 is
     generic(
       sysclk_freq_in_mhz : integer );
     port(
@@ -183,12 +183,12 @@ architecture Behavioral of sitcp is
       at93c46_do_out   : out std_logic;
       m24c08_scl_out   : out std_logic;
       m24c08_sda_out   : out std_logic;
-      m24c08_sda_in    : out std_logic;
-      m24c08_sdat_out : out std_logic;
+      m24c08_sda_in    : in  std_logic;
+      m24c08_sdat_out  : out std_logic;
       reset_in         : in  std_logic;
       sitcp_reset_out  : out std_logic;
       sysclk_in        : in  std_logic);
-  end component AT93C46_M24C08;
+  end component AT93C46_LC04;
 
   signal gmii_clk    : std_logic;
   signal gmii_tx_en  : std_logic;
@@ -289,7 +289,7 @@ begin
       rbcp_ack       => rbcp_ack,
       rbcp_rd        => rbcp_rd);
 
-  at93c46 : AT93C46_M24C08
+  at93c46 : AT93C46_LC04
     generic map(
       sysclk_freq_in_mhz => 200)
     port map (
@@ -300,7 +300,7 @@ begin
       m24c08_scl_out   => iic_main_scl,
       m24c08_sda_out   => sdo,
       m24c08_sda_in    => sdi,
-      m24c08_sdat_out => sdt,
+      m24c08_sdat_out  => sdt,
       reset_in         => rst,
       sitcp_reset_out  => sitcp_reset,
       sysclk_in        => clk_200);
