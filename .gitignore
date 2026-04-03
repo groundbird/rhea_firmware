@@ -10,3 +10,5 @@ ip/**/*.vhd
 ip/**/*.vhdl
 ip/**/*.xdc
 ip/**/*.xml
+.DS_Store
+vivado/report/*
