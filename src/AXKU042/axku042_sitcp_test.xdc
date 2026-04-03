@@ -12,10 +12,8 @@ set_property PACKAGE_PIN AK17 [get_ports {PL_CLK0_P}]
 set_property PACKAGE_PIN AK16 [get_ports {PL_CLK0_N}]
 set_property IOSTANDARD  LVDS [get_ports {PL_CLK0_P PL_CLK0_N}]
 
-# Primary clock defined at IBUFDS output (= MMCM CLKIN1).
-# Placing it here lets Vivado trace through the MMCM and auto-derive all outputs.
-# u_bufg_clk200 (CLKOUT2), u_bufg_clk125 (CLKOUT0), u_bufg_clk125_90 (CLKOUT1)
-# are each named below with create_generated_clock.
+# Primary clock at IBUFDS output (= MMCM CLKIN1).
+# Vivado auto-derives all MMCM output clocks from here.
 create_clock -name clk200_in -period 5.000 [get_pins u_ibufds_clk200/O]
 
 # -----------------------------------------------------------------------------
@@ -28,7 +26,8 @@ set_property PULLUP       true     [get_ports {FPGA_RSETN}]
 # -----------------------------------------------------------------------------
 # RGMII – KSZ9031 (Bank 48, 1.8 V)
 # -----------------------------------------------------------------------------
-set_property IOSTANDARD LVCMOS18 [get_ports {PHY_GTXC PHY_TXEN PHY_RXC PHY_RXDV PHY_MDC PHY_MDIO PHY_RESET PHY_TXD[*] PHY_RXD[*]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {PHY_GTXC PHY_TXEN PHY_RXC PHY_RXDV \
+    PHY_MDC PHY_MDIO PHY_RESET PHY_TXD[*] PHY_RXD[*]}]
 set_property SLEW FAST [get_ports {PHY_GTXC PHY_TXEN PHY_TXD[*] PHY_MDC}]
 set_property SLEW SLOW [get_ports {PHY_RESET}]
 
@@ -56,39 +55,20 @@ set_property PACKAGE_PIN AE31 [get_ports {PHY_MDIO}]
 set_property PACKAGE_PIN V32  [get_ports {PHY_RESET}]
 
 # -----------------------------------------------------------------------------
-# Generated clocks – named explicitly at each BUFG output.
-# -source points to the MMCM output pin that feeds the BUFG input.
-# -master_clock must match the primary clock driving MMCM CLKIN1.
-# -----------------------------------------------------------------------------
-create_generated_clock -name sys_clk200 \
-    -source [get_pins u_mmcm/CLKOUT2] \
-    -master_clock clk200_in \
-    [get_pins u_bufg_clk200/O]
-
-create_generated_clock -name clk125 \
-    -source [get_pins u_mmcm/CLKOUT0] \
-    -master_clock clk200_in \
-    [get_pins u_bufg_clk125/O]
-
-create_generated_clock -name clk125_90 \
-    -source [get_pins u_mmcm/CLKOUT1] \
-    -master_clock clk200_in \
-    [get_pins u_bufg_clk125_90/O]
-
-# RXC through BUFG (asynchronous to MMCM clocks)
-create_generated_clock -name rxc_bufg \
-    -source [get_ports {PHY_RXC}] \
-    -master_clock rgmii_rxc \
-    [get_pins u_bufg_rxc/O]
-
-# -----------------------------------------------------------------------------
 # Clock domain relationships
-# MMCM outputs (sys_clk200 / clk125 / clk125_90) are synchronous.
-# rgmii_rxc / rxc_bufg are asynchronous (external PHY clock).
+#
+# Vivado auto-derives all MMCM output clocks from clk200_in.
+# report_clocks will show them as: mmcm_fb_out, clk125_raw, clk125_90_raw,
+# clk200_raw  (named after the net names in the RTL).
+#
+# -include_generated_clocks covers all auto-derived children automatically,
+# so this constraint is robust against net-name changes.
+#
+# rgmii_rxc (PHY_RXC) is asynchronous to the MMCM clock family.
 # -----------------------------------------------------------------------------
 set_clock_groups -asynchronous \
-    -group [get_clocks {clk200_in sys_clk200 clk125 clk125_90}] \
-    -group [get_clocks {rgmii_rxc rxc_bufg}]
+    -group [get_clocks -include_generated_clocks clk200_in] \
+    -group [get_clocks -include_generated_clocks rgmii_rxc]
 
 # -----------------------------------------------------------------------------
 # RGMII RX input timing
@@ -105,7 +85,7 @@ set_input_delay -clock [get_clocks rgmii_rxc] -min  1.0 -clock_fall [get_ports {
 # PHY_GTXC is +90° (≈2 ns) after TX data, giving the PHY adequate setup margin.
 # KSZ9031 setup/hold requirement: 1.0 ns / 0.8 ns relative to GTX_CLK
 # -----------------------------------------------------------------------------
-set_output_delay -clock [get_clocks clk125] -max  1.0 [get_ports {PHY_TXD[*] PHY_TXEN}]
-set_output_delay -clock [get_clocks clk125] -min -0.8 [get_ports {PHY_TXD[*] PHY_TXEN}]
-set_output_delay -clock [get_clocks clk125] -max  1.0 -clock_fall [get_ports {PHY_TXD[*] PHY_TXEN}]
-set_output_delay -clock [get_clocks clk125] -min -0.8 -clock_fall [get_ports {PHY_TXD[*] PHY_TXEN}]
+set_output_delay -clock [get_clocks clk125_raw] -max  1.0 [get_ports {PHY_TXD[*] PHY_TXEN}]
+set_output_delay -clock [get_clocks clk125_raw] -min -0.8 [get_ports {PHY_TXD[*] PHY_TXEN}]
+set_output_delay -clock [get_clocks clk125_raw] -max  1.0 -clock_fall [get_ports {PHY_TXD[*] PHY_TXEN}]
+set_output_delay -clock [get_clocks clk125_raw] -min -0.8 -clock_fall [get_ports {PHY_TXD[*] PHY_TXEN}]
