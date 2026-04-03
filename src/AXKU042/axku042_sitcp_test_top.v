@@ -14,24 +14,24 @@
 //   2. Set PC IP to 192.168.10.x/24
 //   3. Start Wireshark on the Ethernet interface
 //   4. You should see ARP broadcast from the FPGA IP after ~10ms
-//   5. ping 192.168.10.16  â†’ ICMP echo reply visible in Wireshark
-//   6. nc 192.168.10.16 24  â†’ TCP echo (anything typed is echoed back)
+//   5. ping 192.168.10.16  â†? ICMP echo reply visible in Wireshark
+//   6. nc 192.168.10.16 24  â†? TCP echo (anything typed is echoed back)
 //   7. rbcp (if zturn-rbcp or rbcp-tool available): read/write registers
 //
 // MDIO/MDC are driven by SiTCP; KSZ9031 auto-negotiates with default settings.
 // PHY_RESET is held low for ~10 ms at startup then released.
 //
 // Clock plan:
-//   PL_CLK0 (200 MHz diff) â†’ IBUFDS â†’ MMCME3_ADV
-//     CLKOUT0 (125 MHz, 0Â°)   â†’ u_bufg_clk125   â†’ clk125   (GMII TX)
-//     CLKOUT1 (125 MHz, +90Â°) â†’ u_bufg_clk125_90 â†’ clk125_90 (PHY_GTXC)
-//     CLKOUT2 (200 MHz, 0Â°)   â†’ u_bufg_clk200    â†’ clk200  (SiTCP CLK)
-//   PHY_RXC (125 MHz from PHY) â†’ IBUF â†’ u_bufg_rxc â†’ rxc    (GMII RX)
+//   PL_CLK0 (200 MHz diff) â†? IBUFDS â†? MMCME3_ADV
+//     CLKOUT0 (125 MHz, 0Â°)   â†? u_bufg_clk125   â†? clk125   (GMII TX)
+//     CLKOUT1 (125 MHz, +90Â°) â†? u_bufg_clk125_90 â†? clk125_90 (PHY_GTXC)
+//     CLKOUT2 (200 MHz, 0Â°)   â†? u_bufg_clk200    â†? clk200  (SiTCP CLK)
+//   PHY_RXC (125 MHz from PHY) â†? IBUF â†? u_bufg_rxc â†? rxc    (GMII RX)
 //
 // RGMII:
-//   TX : GMII 8-bit @ clk125 â†’ ODDRE1 â†’ 4-bit DDR @ clk125
-//        GTX_CLK driven with ODDRE1 @ clk125_90 (+90Â° â‰ˆ 2 ns delay vs data)
-//   RX : 4-bit DDR @ rxc â†’ IDDRE1 (SAME_EDGE_PIPELINED) â†’ GMII 8-bit @ rxc
+//   TX : GMII 8-bit @ clk125 â†? ODDRE1 â†? 4-bit DDR @ clk125
+//        GTX_CLK driven with ODDRE1 @ clk125_90 (+90Â° â‰? 2 ns delay vs data)
+//   RX : 4-bit DDR @ rxc â†? IDDRE1 (SAME_EDGE_PIPELINED) â†? GMII 8-bit @ rxc
 //------------------------------------------------------------------------------
 
 module axku042_sitcp_test_top (
@@ -55,12 +55,12 @@ module axku042_sitcp_test_top (
 );
 
     // -------------------------------------------------------------------------
-    // Parameters â€“ edit here to change IP / ports
+    // Parameters â€? edit here to change IP / ports
     // -------------------------------------------------------------------------
     localparam [31:0] MY_IP   = {8'd192, 8'd168, 8'd10, 8'd16}; // 192.168.10.16
     localparam [15:0] MY_TCP  = 16'd24;
     localparam [15:0] MY_RBCP = 16'd4660;
-    localparam [4:0]  PHY_ADDR_PARAM = 5'd0; // KSZ9031 default PHY addr strapped to 0
+    localparam [4:0]  PHY_ADDR_PARAM = 5'd3; // KSZ9031 default PHY addr strapped to 0
 
     // =========================================================================
     // Clock section
@@ -82,8 +82,8 @@ module axku042_sitcp_test_top (
     wire clk125_raw, clk125_90_raw, clk200_raw;
     wire mmcm_locked;
 
-    // MMCME3_ADV: 200 MHz â†’ 125 MHz (0Â°), 125 MHz (+90Â°), 200 MHz (0Â°)
-    // VCO = 200 Ã— 5 = 1000 MHz  (within 600â€“1200 MHz for xcku040 speed-2)
+    // MMCME3_ADV: 200 MHz â†? 125 MHz (0Â°), 125 MHz (+90Â°), 200 MHz (0Â°)
+    // VCO = 200 Ã? 5 = 1000 MHz  (within 600â€?1200 MHz for xcku040 speed-2)
     MMCME3_ADV #(
         .BANDWIDTH          ("OPTIMIZED"),
         .COMPENSATION       ("ZHOLD"),
@@ -92,15 +92,15 @@ module axku042_sitcp_test_top (
         .DIVCLK_DIVIDE      (1),
         .CLKFBOUT_MULT_F    (5.0),       // VCO = 1000 MHz
         .CLKFBOUT_PHASE     (0.0),
-        // CLKOUT0: 125 MHz, 0Â° â€“ TX data clock
+        // CLKOUT0: 125 MHz, 0Â° â€? TX data clock
         .CLKOUT0_DIVIDE_F   (8.000),
         .CLKOUT0_PHASE      (0.000),
         .CLKOUT0_DUTY_CYCLE (0.5),
-        // CLKOUT1: 125 MHz, +90Â° â€“ GTX_CLK output (data-stable before clock edge)
+        // CLKOUT1: 125 MHz, +90Â° â€? GTX_CLK output (data-stable before clock edge)
         .CLKOUT1_DIVIDE     (8),
         .CLKOUT1_PHASE      (90.000),
         .CLKOUT1_DUTY_CYCLE (0.5),
-        // CLKOUT2: 200 MHz, 0Â° â€“ SiTCP system clock
+        // CLKOUT2: 200 MHz, 0Â° â€? SiTCP system clock
         .CLKOUT2_DIVIDE     (5),
         .CLKOUT2_PHASE      (0.000),
         .CLKOUT2_DUTY_CYCLE (0.5)
@@ -169,7 +169,7 @@ module axku042_sitcp_test_top (
     end
     wire btn_rst = rst_p1;  // active-high, synced to clk200
 
-    // Power-up delay: hold PHY reset low for ~10 ms (200 MHz Ã— 2 000 000 = 10 ms)
+    // Power-up delay: hold PHY reset low for ~10 ms (200 MHz Ã? 2 000 000 = 10 ms)
     // Then allow SiTCP to start.
     localparam integer POWERUP_CYCLES = 2_000_000;  // 10 ms @ 200 MHz
 
@@ -194,7 +194,7 @@ module axku042_sitcp_test_top (
     wire sitcp_rst = btn_rst | ~mmcm_locked | ~phy_reset_nr;
 
     // =========================================================================
-    // RGMII TX â€“ GMII 8-bit (clk125) â†’ 4-bit DDR
+    // RGMII TX â€? GMII 8-bit (clk125) â†? 4-bit DDR
     // =========================================================================
 
     // SiTCP GMII TX outputs (clk125 domain)
@@ -241,7 +241,7 @@ module axku042_sitcp_test_top (
     OBUF u_obuf_txen (.I(txen_pre), .O(PHY_TXEN));
 
     // =========================================================================
-    // RGMII RX â€“ 4-bit DDR â†’ GMII 8-bit (rxc domain)
+    // RGMII RX â€? 4-bit DDR â†? GMII 8-bit (rxc domain)
     // =========================================================================
 
     // SiTCP GMII RX inputs (rxc domain)
@@ -297,7 +297,7 @@ module axku042_sitcp_test_top (
     IOBUF u_iobuf_mdio (
         .I (mdio_out),
         .O (mdio_in),
-        .T (~mdio_oe),  // T=1 â†’ tri-state (input), T=0 â†’ drive
+        .T (~mdio_oe),  // T=1 â†? tri-state (input), T=0 â†? drive
         .IO(PHY_MDIO)
     );
 
@@ -313,7 +313,7 @@ module axku042_sitcp_test_top (
     wire [7:0]  tcp_rx_data;
     wire        tcp_tx_full;
 
-    // TCP echo: RX data â†’ TX data (direct loopback)
+    // TCP echo: RX data â†? TX data (direct loopback)
     wire        tcp_tx_wr   = tcp_rx_wr & ~tcp_tx_full;
     wire [7:0]  tcp_tx_data = tcp_rx_data;
 
@@ -337,7 +337,7 @@ module axku042_sitcp_test_top (
         .CLK            (clk200),
         .RST            (sitcp_rst),
         // Config: hardcoded IP, force external values
-        .FORCE_DEFAULTn (1'b1),
+        .FORCE_DEFAULTn (1'b0),
         .EXT_IP_ADDR    (MY_IP),
         .EXT_TCP_PORT   (MY_TCP),
         .EXT_RBCP_PORT  (MY_RBCP),
