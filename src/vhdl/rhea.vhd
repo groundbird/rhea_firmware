@@ -42,9 +42,9 @@ use work.rhea_pkg.all;
 
 entity rhea is
   port (
-    -- KCU105 Resources
-    sysclk_125MHz_p : in     std_logic;
-    sysclk_125MHz_n : in     std_logic;
+    -- System / user I/O
+    sysclk_200MHz_p : in     std_logic;
+    sysclk_200MHz_n : in     std_logic;
     cpu_reset       : in     std_logic;
     gpio_led        : out    std_logic_vector(7 downto 0);
     gpio_dip_sw     : in     std_logic_vector(3 downto 0);
@@ -76,19 +76,20 @@ entity rhea is
     adc_sdo18      : in     std_logic;
     dac_sdo18      : in     std_logic;
     adc_reset18    : out    std_logic;
-    -- PHY I/O
+    -- PHY I/O (AXKU042 RGMII)
     phy_rstn       : out    std_logic;
-    sgmii_rx_n     : in     std_logic;
-    sgmii_rx_p     : in     std_logic;
-    sgmii_tx_n     : out    std_logic;
-    sgmii_tx_p     : out    std_logic;
-    sgmiiclk_n     : in     std_logic;
-    sgmiiclk_p     : in     std_logic;
+    phy_gtxc       : out    std_logic;
+    phy_txd        : out    std_logic_vector(3 downto 0);
+    phy_txen       : out    std_logic;
+    phy_rxc        : in     std_logic;
+    phy_rxd        : in     std_logic_vector(3 downto 0);
+    phy_rxdv       : in     std_logic;
+    phy_mdc        : out    std_logic;
+    phy_mdio       : inout  std_logic;
     -- Pmod I
     pmod_sync_in   : in     std_logic;
     pmod_sgswp_in  : in     std_logic;
     -- EEPROM
-    IIC_MUX_RESET_B : out   std_logic;
     IIC_MAIN_SDA   : inout  std_logic;
     IIC_MAIN_SCL   : out    std_logic);
 
@@ -98,18 +99,11 @@ end rhea;
 
 architecture Behavioral of rhea is
 
-  component system_clock is
-    port (
-      clk_in1_p : in  std_logic;        -- system clock (125 MHz)
-      clk_in1_n : in  std_logic;
-      clk_out1  : out std_logic;        -- 200 MHz
-      reset     : in  std_logic;        -- cpu_reset
-      locked    : out std_logic);
-  end component system_clock;
-
   signal clk_int_200 : std_logic;
   signal reset_int   : std_logic;
   signal clk_int_loc : std_logic;
+  signal clk_int_pre : std_logic;
+  signal cpu_reset_i : std_logic;
 
   component adc_clock_man is
     port (
@@ -470,12 +464,14 @@ architecture Behavioral of rhea is
       status         : out   std_logic_vector(15 downto 0);
       -- PHY I/F
       phy_rstn       : out   std_logic;
-      sgmii_clk_p    : in    std_logic;
-      sgmii_clk_n    : in    std_logic;
-      sgmii_tx_p     : out   std_logic;     -- SGMII transmit data
-      sgmii_tx_n     : out   std_logic;
-      sgmii_rx_p     : in    std_logic;     -- SGMII receive data
-      sgmii_rx_n     : in    std_logic;
+      phy_gtxc       : out   std_logic;
+      phy_txd        : out   std_logic_vector(3 downto 0);
+      phy_txen       : out   std_logic;
+      phy_rxc        : in    std_logic;
+      phy_rxd        : in    std_logic_vector(3 downto 0);
+      phy_rxdv       : in    std_logic;
+      phy_mdc        : out   std_logic;
+      phy_mdio       : inout std_logic;
       -- TCP
       tcp_open_ack   : out   std_logic;
       tcp_tx_full    : out   std_logic;
@@ -490,7 +486,6 @@ architecture Behavioral of rhea is
       rbcp_ack       : in    std_logic;
       rbcp_rd        : in    std_logic_vector(7 downto 0);
       -- EEPROM
-      iic_mux_reset_b : out  std_logic;
       iic_main_sda   : inout std_logic;
       iic_main_scl   : out   std_logic;
       force_defaultn : in    std_logic );
@@ -803,16 +798,23 @@ architecture Behavioral of rhea is
 
 begin
 
+  cpu_reset_i <= not cpu_reset;
+
   ---------------------------------------------------------------------------
   -- Clock/Reset
   ---------------------------------------------------------------------------
-  System_Clock_inst : system_clock
+  u_ibufds_sysclk : IBUFDS
     port map (
-      clk_in1_p => sysclk_125MHz_p,
-      clk_in1_n => sysclk_125MHz_n,
-      clk_out1  => clk_int_200,
-      reset     => cpu_reset,
-      locked    => clk_int_loc);
+      I  => sysclk_200MHz_p,
+      IB => sysclk_200MHz_n,
+      O  => clk_int_pre);
+
+  u_bufg_sysclk : BUFG
+    port map (
+      I => clk_int_pre,
+      O => clk_int_200);
+
+  clk_int_loc <= '1';
 
 
   ADC_Clock_inst : adc_clock_man
@@ -844,14 +846,14 @@ begin
   System_Reset : process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
-      reset_int <= (not clk_int_loc) or cpu_reset;
+      reset_int <= (not clk_int_loc) or cpu_reset_i;
     end if;
   end process;
 
   ADC_Reset : process(clk_ext_200)
   begin
     if rising_edge(clk_ext_200) then
-      reset_ext <= (not clk_ext_loc) or cpu_reset;
+      reset_ext <= (not clk_ext_loc) or cpu_reset_i;
     end if;
   end process;
 
@@ -1407,7 +1409,7 @@ begin
   ---------------------------------------------------------------------------
   Data_Transfer_to_SiTCP_inst : data_transfer_to_sitcp
     port map (
-      rst              => cpu_reset,
+      rst              => cpu_reset_i,
       wr_clk           => clk_ext_200,
       rd_clk           => clk_int_200,
       fifo_wr_en       => fifo_wr_en,
@@ -1447,12 +1449,14 @@ begin
       sitcp_rst      => sitcp_rst,
       status         => sitcp_status,
       phy_rstn       => phy_rstn,
-      sgmii_clk_p    => sgmiiclk_p,
-      sgmii_clk_n    => sgmiiclk_n,
-      sgmii_tx_p     => sgmii_tx_p,
-      sgmii_tx_n     => sgmii_tx_n,
-      sgmii_rx_p     => sgmii_rx_p,
-      sgmii_rx_n     => sgmii_rx_n,
+      phy_gtxc       => phy_gtxc,
+      phy_txd        => phy_txd,
+      phy_txen       => phy_txen,
+      phy_rxc        => phy_rxc,
+      phy_rxd        => phy_rxd,
+      phy_rxdv       => phy_rxdv,
+      phy_mdc        => phy_mdc,
+      phy_mdio       => phy_mdio,
       tcp_open_ack   => tcp_open_ack,
       tcp_tx_full    => tcp_tx_full,
       tcp_tx_wr      => tcp_tx_wr,
@@ -1464,10 +1468,9 @@ begin
       rbcp_re        => rbcp_re,
       rbcp_ack       => rbcp_ack,
       rbcp_rd        => rbcp_rd,
-      iic_mux_reset_b => IIC_MUX_RESET_B,
       iic_main_sda   => IIC_MAIN_SDA,
       iic_main_scl   => IIC_MAIN_SCL,
-      force_defaultn => gpio_dip_sw(0) );
+      force_defaultn => '1' );
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
@@ -1541,7 +1544,7 @@ begin
 
   RBCP_Transfer_from_SiTCP_inst : rbcp_transfer_from_sitcp
     port map(
-      rst      => cpu_reset,
+      rst      => cpu_reset_i,
       clk_int  => clk_int_200,
       clk_ext  => clk_ext_200,
       we_int   => rbcp_we,
@@ -1555,7 +1558,7 @@ begin
 
   RBCP_Transfer_to_SiTCP_inst : rbcp_transfer_to_sitcp
     port map(
-      rst     => cpu_reset,
+      rst     => cpu_reset_i,
       clk_ext => clk_ext_200,
       clk_int => clk_int_200,
       rd_ext  => rbcp_rd_ext,
@@ -1919,15 +1922,7 @@ begin
 --  rbcp_db_probe( 0) <= sitcp_status( 7 downto  0);
 --  rbcp_db_probe( 1) <= sitcp_status(15 downto  8);
 
-  gpio_led <= rbcp_db_probe( 0) when gpio_dip_sw(3 downto 1) = "000" else
-              rbcp_db_probe( 1) when gpio_dip_sw(3 downto 1) = "001" else
-              sitcp_status( 7 downto 0) when gpio_dip_sw(3 downto 1) = "010" else
-              sitcp_status(15 downto 8) when gpio_dip_sw(3 downto 1) = "011" else
-              rbcp_db_probe( 0) when gpio_dip_sw(3 downto 1) = "100" else
-              rbcp_db_probe( 0) when gpio_dip_sw(3 downto 1) = "101" else
-              rbcp_db_probe( 0) when gpio_dip_sw(3 downto 1) = "110" else
-              rbcp_db_probe( 0) when gpio_dip_sw(3 downto 1) = "111" else
-              "00000000";
+  gpio_led <= sitcp_status(7 downto 0);
 
   ---------------------------------------------------------------------------
   -- Ethernet Mode

@@ -12,3 +12,4 @@ ip/**/*.xdc
 ip/**/*.xml
 .DS_Store
 vivado/report/*
+manual/

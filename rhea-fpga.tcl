@@ -71,18 +71,17 @@ if { $::argc > 0 } {
 set orig_proj_dir "[file normalize "$origin_dir/rhea-fpga"]"
 
 # Create project
-create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xcku040-ffva1156-2-e
+create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xcku040-ffva1156-2-i
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
 
 # Set project properties
 set obj [current_project]
-set_property -name "board_part" -value "xilinx.com:kcu105:part0:1.5" -objects $obj
 set_property -name "default_lib" -value "xil_defaultlib" -objects $obj
 set_property -name "dsa.accelerator_binary_content" -value "bitstream" -objects $obj
 set_property -name "dsa.accelerator_binary_format" -value "xclbin2" -objects $obj
-set_property -name "dsa.board_id" -value "kcu105" -objects $obj
+set_property -name "dsa.board_id" -value "axku042" -objects $obj
 set_property -name "dsa.description" -value "Vivado generated DSA" -objects $obj
 set_property -name "dsa.dr_bd_base_address" -value "0" -objects $obj
 set_property -name "dsa.emu_dir" -value "emu" -objects $obj
@@ -112,6 +111,9 @@ set_property -name "webtalk.xcelium_export_sim" -value "2" -objects $obj
 set_property -name "webtalk.xsim_export_sim" -value "42" -objects $obj
 set_property -name "webtalk.xsim_launch_sim" -value "59" -objects $obj
 set_property -name "xpm_libraries" -value "XPM_CDC XPM_MEMORY" -objects $obj
+set_property SEVERITY Warning [get_drc_checks UCIO-1]
+set_property SEVERITY Warning [get_drc_checks NSTD-1]
+set_property SEVERITY Warning [get_drc_checks RTSTAT-1]
 
 # Create 'sources_1' fileset (if not found)
 if {[string equal [get_filesets -quiet sources_1] ""]} {
@@ -122,11 +124,11 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 set obj [get_filesets sources_1]
 set files [list \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.edf"] \
- [file normalize "${origin_dir}/src/AT93C46_M24C08/AT93C46_M24C08.v"] \
- [file normalize "${origin_dir}/src/AT93C46_M24C08/M24_READER.v"] \
- [file normalize "${origin_dir}/src/AT93C46_M24C08/M24_WRITER.v"] \
- [file normalize "${origin_dir}/src/AT93C46_M24C08/blk_mem_128x15.v"] \
  [file normalize "${origin_dir}/src/AT93C46_M24C08/blk_mem_gen_v7_3.v"] \
+ [file normalize "${origin_dir}/src/LC04/AT93C46_LC04.v"] \
+ [file normalize "${origin_dir}/src/LC04/LC04_READER.v"] \
+ [file normalize "${origin_dir}/src/LC04/LC04_WRITER.v"] \
+ [file normalize "${origin_dir}/src/AXKU042/axku042_sitcp_core.v"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.V"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/TIMER.v"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/WRAP_SiTCP_GMII_XCKU_32K.V"] \
@@ -308,20 +310,7 @@ set_property -name "top_auto_set" -value "0" -objects $obj
 
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
-set files [list \
- [file normalize "${origin_dir}/ip/gig_ethernet_pcs_pma_2/gig_ethernet_pcs_pma_2.xci"] \
-]
-add_files -norecurse -fileset $obj $files
-
-# Set 'sources_1' fileset file properties for remote files
-set file "$origin_dir/ip/gig_ethernet_pcs_pma_2/gig_ethernet_pcs_pma_2.xci"
-set file [file normalize $file]
-set file_obj [get_files -of_objects [get_filesets sources_1] [list "*$file"]]
-set_property -name "generate_files_for_reference" -value "0" -objects $file_obj
-set_property -name "registered_with_manager" -value "1" -objects $file_obj
-if { ![get_property "is_locked" $file_obj] } {
-  set_property -name "synth_checkpoint_mode" -value "Singular" -objects $file_obj
-}
+set files [list]
 
 
 # Set 'sources_1' fileset file properties for local files
@@ -651,9 +640,9 @@ if {[string equal [get_filesets -quiet constrs_1] ""]} {
 set obj [get_filesets constrs_1]
 
 # Add/Import constrs file and set constrs file properties
-set file "[file normalize "$origin_dir/src/xdc/kcu105.xdc"]"
+set file "[file normalize "$origin_dir/src/xdc/axku042.xdc"]"
 set file_added [add_files -norecurse -fileset $obj [list $file]]
-set file "$origin_dir/src/xdc/kcu105.xdc"
+set file "$origin_dir/src/xdc/axku042.xdc"
 set file [file normalize $file]
 set file_obj [get_files -of_objects [get_filesets constrs_1] [list "*$file"]]
 set_property -name "file_type" -value "XDC" -objects $file_obj
