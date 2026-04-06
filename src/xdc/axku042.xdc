@@ -150,6 +150,17 @@ set_property PACKAGE_PIN AD29 [get_ports frame_p]
 set_property IOSTANDARD LVDS [get_ports {dclk_p dclk_n frame_p frame_n dout_p[*] dout_n[*]}]
 
 # -----------------------------------------------------------------------------
+# Sync_in and sgswp_in on SMA interfaces of AXKU042. 
+# Note that they are connected BANK66 of the FPGA, which has interface level of 1.8V.
+# You need an external level conversion for these signals since these are at 3.3V level. 
+# -----------------------------------------------------------------------------
+
+set_property PACKAGE_PIN G12 [get_ports pmod_sync_in]
+set_property PACKAGE_PIN H12 [get_ports pmod_sgswp_in]
+set_property IOSTANDARD LVCMOS18 [get_ports pmod_sync_in]
+set_property IOSTANDARD LVCMOS18 [get_ports pmod_sgswp_in]
+
+# -----------------------------------------------------------------------------
 # Keep ADC/DAC and system/ethernet clock families asynchronous
 # -----------------------------------------------------------------------------
 set_clock_groups -asynchronous \
