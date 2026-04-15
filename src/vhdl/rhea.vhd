@@ -46,6 +46,7 @@ entity rhea is
     sysclk_200MHz_p : in     std_logic;
     sysclk_200MHz_n : in     std_logic;
     cpu_reset       : in     std_logic;
+    user_key0_n     : in     std_logic;
     gpio_led        : out    std_logic_vector(7 downto 0);
     gpio_dip_sw     : in     std_logic_vector(3 downto 0);
     gpio_sw_n       : in     std_logic;
@@ -1470,7 +1471,7 @@ begin
       rbcp_rd        => rbcp_rd,
       iic_main_sda   => IIC_MAIN_SDA,
       iic_main_scl   => IIC_MAIN_SCL,
-      force_defaultn => '1' );
+      force_defaultn => user_key0_n );
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then

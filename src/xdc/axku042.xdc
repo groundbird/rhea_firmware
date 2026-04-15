@@ -23,6 +23,11 @@ set_property PACKAGE_PIN N27 [get_ports cpu_reset]
 set_property IOSTANDARD LVCMOS33 [get_ports cpu_reset]
 set_property PULLUP true [get_ports cpu_reset]
 
+# User key for SiTCP force-default mode (active-low when pressed)
+set_property PACKAGE_PIN N23 [get_ports user_key0_n]
+set_property IOSTANDARD LVCMOS33 [get_ports user_key0_n]
+set_property PULLUP true [get_ports user_key0_n]
+
 # -----------------------------------------------------------------------------
 # RGMII Ethernet (KSZ9031RNX)
 # -----------------------------------------------------------------------------
