@@ -2,11 +2,36 @@
 # This file is sourced by rhea-fpga.tcl and creates managed IPs with create_ip.
 
 proc create_managed_ip {module_name ip_name ip_version config_list} {
+  if {$ip_name eq "clk_wiz"} {
+    set config_list [sanitize_clk_wiz_config $config_list]
+  }
   create_ip -vendor xilinx.com -library ip -name $ip_name -version $ip_version -module_name $module_name
   if {[llength $config_list] > 0} {
     set_property -dict $config_list [get_ips $module_name]
   }
   generate_target all [get_ips $module_name]
+}
+
+proc sanitize_clk_wiz_config {config_list} {
+  array set cfg $config_list
+
+  foreach key {
+    CONFIG.CLK_IN1_BOARD_INTERFACE
+    CONFIG.CLK_IN2_BOARD_INTERFACE
+    CONFIG.DIFF_CLK_IN1_BOARD_INTERFACE
+    CONFIG.DIFF_CLK_IN2_BOARD_INTERFACE
+    CONFIG.RESET_BOARD_INTERFACE
+  } {
+    if {[info exists cfg($key)] && $cfg($key) ni {Custom sys_clock sys_diff_clock}} {
+      set cfg($key) Custom
+    }
+  }
+
+  set sanitized [list]
+  foreach key [array names cfg] {
+    lappend sanitized $key $cfg($key)
+  }
+  return $sanitized
 }
 
 set managed_ips [list \
