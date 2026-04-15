@@ -76,24 +76,32 @@ create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xcku040-ffva1156-2-
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
 
+proc set_project_property_if_supported {obj prop value} {
+  if {[lsearch -exact [list_property $obj] $prop] >= 0} {
+    set_property -name $prop -value $value -objects $obj
+  } else {
+    puts "INFO: Skipping unsupported project property '$prop'"
+  }
+}
+
 # Set project properties
 set obj [current_project]
 set_property -name "default_lib" -value "xil_defaultlib" -objects $obj
-set_property -name "dsa.accelerator_binary_content" -value "bitstream" -objects $obj
-set_property -name "dsa.accelerator_binary_format" -value "xclbin2" -objects $obj
-set_property -name "dsa.board_id" -value "axku042" -objects $obj
-set_property -name "dsa.description" -value "Vivado generated DSA" -objects $obj
-set_property -name "dsa.dr_bd_base_address" -value "0" -objects $obj
-set_property -name "dsa.emu_dir" -value "emu" -objects $obj
-set_property -name "dsa.flash_interface_type" -value "bpix16" -objects $obj
-set_property -name "dsa.flash_offset_address" -value "0" -objects $obj
-set_property -name "dsa.flash_size" -value "1024" -objects $obj
-set_property -name "dsa.host_architecture" -value "x86_64" -objects $obj
-set_property -name "dsa.host_interface" -value "pcie" -objects $obj
-set_property -name "dsa.num_compute_units" -value "60" -objects $obj
-set_property -name "dsa.platform_state" -value "pre_synth" -objects $obj
-set_property -name "dsa.vendor" -value "xilinx" -objects $obj
-set_property -name "dsa.version" -value "0.0" -objects $obj
+set_project_property_if_supported $obj "dsa.accelerator_binary_content" "bitstream"
+set_project_property_if_supported $obj "dsa.accelerator_binary_format" "xclbin2"
+set_project_property_if_supported $obj "dsa.board_id" "axku042"
+set_project_property_if_supported $obj "dsa.description" "Vivado generated DSA"
+set_project_property_if_supported $obj "dsa.dr_bd_base_address" "0"
+set_project_property_if_supported $obj "dsa.emu_dir" "emu"
+set_project_property_if_supported $obj "dsa.flash_interface_type" "bpix16"
+set_project_property_if_supported $obj "dsa.flash_offset_address" "0"
+set_project_property_if_supported $obj "dsa.flash_size" "1024"
+set_project_property_if_supported $obj "dsa.host_architecture" "x86_64"
+set_project_property_if_supported $obj "dsa.host_interface" "pcie"
+set_project_property_if_supported $obj "dsa.num_compute_units" "60"
+set_project_property_if_supported $obj "dsa.platform_state" "pre_synth"
+set_project_property_if_supported $obj "dsa.vendor" "xilinx"
+set_project_property_if_supported $obj "dsa.version" "0.0"
 set_property -name "enable_vhdl_2008" -value "1" -objects $obj
 set_property -name "ip_cache_permissions" -value "read write" -objects $obj
 set_property -name "ip_output_repo" -value "$proj_dir/${_xil_proj_name_}.cache/ip" -objects $obj
