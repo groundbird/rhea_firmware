@@ -735,6 +735,12 @@ architecture Behavioral of rhea is
 
   signal i_data : iq_data_array;
   signal q_data : iq_data_array;
+  attribute keep : string;
+  attribute dont_touch : string;
+  attribute keep of adcd_a_fan : signal is "true";
+  attribute keep of adcd_b_fan : signal is "true";
+  attribute dont_touch of adcd_a_fan : signal is "true";
+  attribute dont_touch of adcd_b_fan : signal is "true";
 
   component downsampler is
     port (

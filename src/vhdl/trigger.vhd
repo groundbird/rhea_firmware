@@ -31,6 +31,8 @@ end entity trigger;
 architecture Behavioral of trigger is
 
   constant trig_pos_offset : natural := 1;
+  constant TRIGGER_GROUP_SIZE : natural := 8;
+  constant N_TRIGGER_GROUP : natural := (N_CH_TRIG*2 + TRIGGER_GROUP_SIZE - 1) / TRIGGER_GROUP_SIZE;
   constant IQ_BUF_WIDTH : natural := 64;
   subtype iq_buf_data is std_logic_vector(IQ_BUF_WIDTH-1 downto 0);
   type iq_buf_data_array is array (N_CH_TRIG*2-1 downto 0) of iq_buf_data;
@@ -74,8 +76,11 @@ architecture Behavioral of trigger is
 
   -- internal signal
   signal enable    : std_logic;
+  signal ch_enable_local : std_logic_vector(N_CH_TRIG*2-1 downto 0);
+  signal thre_cnt_local  : trig_time_array;
   signal ch_trig_c : trig_time_array;
   signal ch_trig   : std_logic_vector(N_CH_TRIG*2-1 downto 0);
+  signal trig_group : std_logic_vector(N_TRIGGER_GROUP-1 downto 0);
   signal trig_cond   : trig_cond_array;
   signal trigger   : std_logic;
 
@@ -182,6 +187,13 @@ begin
     process(clk)
     begin
       if rising_edge(clk) then
+        ch_enable_local(i) <= ch_enable(i);
+        thre_cnt_local(i)  <= thre_cnt;
+      end if;
+    end process;
+    process(clk)
+    begin
+      if rising_edge(clk) then
         if dwe_buf = '1' then
           if (trig_cond(i)) then
             ch_trig_c(i) <= std_logic_vector(unsigned(ch_trig_c(i)) + 1);
@@ -194,7 +206,7 @@ begin
     process(clk)
     begin
       if rising_edge(clk) then
-        if unsigned(ch_trig_c(i)) >= unsigned(thre_cnt) then
+        if unsigned(ch_trig_c(i)) >= unsigned(thre_cnt_local(i)) then
           ch_trig(i) <= '1';
         else
           ch_trig(i) <= '0';
@@ -202,10 +214,30 @@ begin
       end if;
     end process;
   end generate;
+  TRIGGER_GROUP_GEN : for grp in 0 to N_TRIGGER_GROUP-1 generate
+    process(clk)
+      variable hit : std_logic;
+      variable idx_lo : natural;
+      variable idx_hi : natural;
+    begin
+      if rising_edge(clk) then
+        hit := '0';
+        idx_lo := grp * TRIGGER_GROUP_SIZE;
+        idx_hi := idx_lo + TRIGGER_GROUP_SIZE - 1;
+        if idx_hi > N_CH_TRIG*2-1 then
+          idx_hi := N_CH_TRIG*2-1;
+        end if;
+        for idx in idx_lo to idx_hi loop
+          hit := hit or (ch_enable_local(idx) and ch_trig(idx));
+        end loop;
+        trig_group(grp) <= hit;
+      end if;
+    end process;
+  end generate;
   TRIGGER_PROC : process(clk)
   begin
     if rising_edge(clk) then
-      trigger <= or_reduce(ch_enable and ch_trig);
+      trigger <= or_reduce(trig_group);
     end if;
   end process;
 
