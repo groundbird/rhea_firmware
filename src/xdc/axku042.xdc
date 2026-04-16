@@ -28,6 +28,19 @@ set_property PACKAGE_PIN N23 [get_ports user_key0_n]
 set_property IOSTANDARD LVCMOS33 [get_ports user_key0_n]
 set_property PULLUP true [get_ports user_key0_n]
 
+# User LEDs
+set_property PACKAGE_PIN E12 [get_ports {user_led[0]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {user_led[0]}]
+
+set_property PACKAGE_PIN F12 [get_ports {user_led[1]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {user_led[1]}]
+
+set_property PACKAGE_PIN L9 [get_ports {user_led[2]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {user_led[2]}]
+
+set_property PACKAGE_PIN H23 [get_ports {user_led[3]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {user_led[3]}]
+
 # -----------------------------------------------------------------------------
 # RGMII Ethernet (KSZ9031RNX)
 # -----------------------------------------------------------------------------

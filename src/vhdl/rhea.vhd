@@ -47,13 +47,7 @@ entity rhea is
     sysclk_200MHz_n : in     std_logic;
     cpu_reset       : in     std_logic;
     user_key0_n     : in     std_logic;
-    gpio_led        : out    std_logic_vector(7 downto 0);
-    gpio_dip_sw     : in     std_logic_vector(3 downto 0);
-    gpio_sw_n       : in     std_logic;
-    gpio_sw_e       : in     std_logic;
-    gpio_sw_s       : in     std_logic;
-    gpio_sw_w       : in     std_logic;
-    gpio_sw_c       : in     std_logic;
+    user_led        : out    std_logic_vector(3 downto 0);
     -- ADC I/O
     clk_ab_p       : in     std_logic;  -- ADC sample clock
     clk_ab_n       : in     std_logic;
@@ -1929,7 +1923,7 @@ begin
 --  rbcp_db_probe( 0) <= sitcp_status( 7 downto  0);
 --  rbcp_db_probe( 1) <= sitcp_status(15 downto  8);
 
-  gpio_led <= sitcp_status(7 downto 0);
+  user_led <= sitcp_status(3 downto 0);
 
   ---------------------------------------------------------------------------
   -- Ethernet Mode
