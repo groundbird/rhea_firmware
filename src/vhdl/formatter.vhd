@@ -73,6 +73,8 @@ architecture Behavioral of formatter is
   signal cnt       : integer range 0 to (d_num * d_byte + 4); -- max(d_num * d_byte - 1, 4)
   signal trg_reg : std_logic;
   signal trg_rst : std_logic;
+  signal dout_pre  : std_logic_vector(7 downto 0);
+  signal valid_pre : std_logic;
 
   type fmt_state is (reset, idle, send_header, send_ts, send_data, send_footer, fini);
   signal s_fmt     : fmt_state;
@@ -97,14 +99,12 @@ begin
   process(clk)
   begin
     if rising_edge(clk) then
-      if s_fmt = send_header or
-        s_fmt = send_ts      or
-        s_fmt = send_data    or
-        s_fmt = send_footer  then
-        valid <= '1';
-      else
-        valid <= '0';
-      end if;
+      valid_pre <= '1' when s_fmt = send_header or
+                            s_fmt = send_ts      or
+                            s_fmt = send_data    or
+                            s_fmt = send_footer
+                   else '0';
+      valid <= valid_pre;
     end if;
   end process;
 
@@ -114,24 +114,25 @@ begin
       case s_fmt is
         when send_header =>
           if sync_mode = '1' then -- for sync_mode, header -> 'f5'
-            dout <= x"f5";
+            dout_pre <= x"f5";
           elsif trg_reg = '1' then -- sg_swp, header -> 'aa'
-            dout <= x"aa";
+            dout_pre <= x"aa";
             trg_rst <= '1';
           else
-            dout <= x"ff";
+            dout_pre <= x"ff";
           end if;
         when send_ts     =>
           if sync_mode = '1' then
-            dout <= n_rot_fmt(cnt);
+            dout_pre <= n_rot_fmt(cnt);
           else
-            dout <= ts_fmt(cnt);
+            dout_pre <= ts_fmt(cnt);
             trg_rst <= '0';
           end if;
-        when send_data   => dout <= din_fmt(cnt);
-        when send_footer => dout <= x"ee";
-        when others      => dout <= x"00";
+        when send_data   => dout_pre <= din_fmt(cnt);
+        when send_footer => dout_pre <= x"ee";
+        when others      => dout_pre <= x"00";
       end case;
+      dout <= dout_pre;
     end if;
   end process;
 

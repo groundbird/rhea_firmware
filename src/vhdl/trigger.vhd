@@ -64,6 +64,9 @@ architecture Behavioral of trigger is
   signal rbcp_re_buf : std_logic;
   signal rbcp_addr_buf : std_logic_vector(31 downto 0);
   signal rbcp_wd_buf : std_logic_vector(7 downto 0);
+  signal rbcp_we_dec : std_logic;
+  signal rbcp_re_dec : std_logic;
+  signal rbcp_wd_dec : std_logic_vector(7 downto 0);
   signal sft_rst    : std_logic;
   signal en_trig    : std_logic;
   signal thre_min   : iq_tri_ds_data_array;
@@ -77,6 +80,16 @@ architecture Behavioral of trigger is
 
   signal int_ch    : integer range 0 to 255;
   signal int_byte  : integer range 0 to   7;
+  signal int_ch_dec   : integer range 0 to 255;
+  signal int_byte_dec : integer range 0 to 7;
+  signal sel_ctl_reg      : std_logic;
+  signal sel_trig_pos_reg : std_logic;
+  signal sel_thre_cnt_reg : std_logic;
+  signal sel_enable_reg   : std_logic;
+  signal sel_th_min_a_reg : std_logic;
+  signal sel_th_min_b_reg : std_logic;
+  signal sel_th_max_a_reg : std_logic;
+  signal sel_th_max_b_reg : std_logic;
 
   -- internal signal
   signal enable    : std_logic;
@@ -97,6 +110,11 @@ architecture Behavioral of trigger is
   signal fifo_empty : std_logic;
   signal fifo_count : std_logic_vector(9 downto 0);
   signal fifo_full  : std_logic;
+
+  attribute keep : string;
+  attribute keep of rbcp_addr_buf : signal is "true";
+  attribute keep of rbcp_we_buf : signal is "true";
+  attribute keep of rbcp_re_buf : signal is "true";
 
 begin
 
@@ -141,6 +159,50 @@ begin
       rbcp_re_buf   <= rbcp_re;
       rbcp_addr_buf <= rbcp_addr;
       rbcp_wd_buf   <= rbcp_wd;
+    end if;
+  end process;
+
+  process(clk)
+  begin
+    if rising_edge(clk) then
+      rbcp_we_dec <= rbcp_we_buf;
+      rbcp_re_dec <= rbcp_re_buf;
+      rbcp_wd_dec <= rbcp_wd_buf;
+      int_ch_dec  <= int_ch;
+      int_byte_dec <= int_byte;
+
+      sel_ctl_reg      <= '0';
+      sel_trig_pos_reg <= '0';
+      sel_thre_cnt_reg <= '0';
+      sel_enable_reg   <= '0';
+      sel_th_min_a_reg <= '0';
+      sel_th_min_b_reg <= '0';
+      sel_th_max_a_reg <= '0';
+      sel_th_max_b_reg <= '0';
+
+      if rbcp_addr_buf(31 downto 16) = x"7000" then
+        if rbcp_addr_buf(15 downto 0) = x"0000" then
+          sel_ctl_reg <= '1';
+        elsif rbcp_addr_buf(15 downto 4) = x"001" then
+          sel_trig_pos_reg <= '1';
+        elsif rbcp_addr_buf(15 downto 4) = x"002" then
+          sel_thre_cnt_reg <= '1';
+        end if;
+      elsif rbcp_addr_buf(31 downto 16) = x"7100" then
+        if int_ch < N_CH_TRIG then
+          if rbcp_addr_buf(7 downto 0) = x"00" then
+            sel_enable_reg <= '1';
+          elsif rbcp_addr_buf(7 downto 4) = x"1" then
+            sel_th_min_a_reg <= '1';
+          elsif rbcp_addr_buf(7 downto 4) = x"2" then
+            sel_th_min_b_reg <= '1';
+          elsif rbcp_addr_buf(7 downto 4) = x"3" then
+            sel_th_max_a_reg <= '1';
+          elsif rbcp_addr_buf(7 downto 4) = x"4" then
+            sel_th_max_b_reg <= '1';
+          end if;
+        end if;
+      end if;
     end if;
   end process;
 
@@ -372,100 +434,100 @@ begin
         sft_rst  <= '0';
         en_trig  <= '0';
 
-        if rbcp_addr_buf(31 downto 16) = x"7000" then
-
-          if rbcp_addr_buf(15 downto 0) = x"0000" then
-            if rbcp_we_buf = '1' then
+        if sel_ctl_reg = '1' then
+            if rbcp_we_dec = '1' then
               rbcp_ack <= '1';
-              if rbcp_wd_buf(0) = '0' then
+              if rbcp_wd_dec(0) = '0' then
                 sft_rst <= '1';
               else
                 en_trig <= '1';
               end if;
-            elsif rbcp_re_buf = '1' then
+            elsif rbcp_re_dec = '1' then
               rbcp_ack <= '1';
               rbcp_rd(0) <= enable;
             end if;
 
-          elsif rbcp_addr_buf(15 downto 4) = x"001" then
-            if int_byte < 2 then
-              if rbcp_we_buf = '1' then
+        elsif sel_trig_pos_reg = '1' then
+            if int_byte_dec < 2 then
+              if rbcp_we_dec = '1' then
                 rbcp_ack <= '1';
-                trig_pos((1-int_byte)*8 + 7 downto (1-int_byte)*8) <= rbcp_wd_buf;
-              elsif rbcp_re_buf = '1' then
+                trig_pos((1-int_byte_dec)*8 + 7 downto (1-int_byte_dec)*8) <= rbcp_wd_dec;
+              elsif rbcp_re_dec = '1' then
                 rbcp_ack <= '1';
-                rbcp_rd  <= trig_pos((1-int_byte)*8 + 7 downto (1-int_byte)*8);
+                rbcp_rd  <= trig_pos((1-int_byte_dec)*8 + 7 downto (1-int_byte_dec)*8);
               end if;
             end if;
 
-          elsif rbcp_addr_buf(15 downto 4) = x"002" then
-            if int_byte < 2 then
-              if rbcp_we_buf = '1' then
+        elsif sel_thre_cnt_reg = '1' then
+            if int_byte_dec < 2 then
+              if rbcp_we_dec = '1' then
                 rbcp_ack <= '1';
-                thre_cnt((1-int_byte)*8 + 7 downto (1-int_byte)*8) <= rbcp_wd_buf;
-              elsif rbcp_re_buf = '1' then
+                thre_cnt((1-int_byte_dec)*8 + 7 downto (1-int_byte_dec)*8) <= rbcp_wd_dec;
+              elsif rbcp_re_dec = '1' then
                 rbcp_ack <= '1';
-                rbcp_rd  <= thre_cnt((1-int_byte)*8 + 7 downto (1-int_byte)*8);
+                rbcp_rd  <= thre_cnt((1-int_byte_dec)*8 + 7 downto (1-int_byte_dec)*8);
               end if;
             end if;
 
-          end if;
+        elsif sel_enable_reg = '1' or
+              sel_th_min_a_reg = '1' or
+              sel_th_min_b_reg = '1' or
+              sel_th_max_a_reg = '1' or
+              sel_th_max_b_reg = '1' then
+          if int_ch_dec < N_CH_TRIG then
 
-        elsif rbcp_addr_buf(31 downto 16) = x"7100" then
-          if int_ch < N_CH_TRIG then
-
-            if rbcp_addr_buf(7 downto 0) = x"00" then
-              if rbcp_we_buf = '1' then
+            if sel_enable_reg = '1' then
+              if rbcp_we_dec = '1' then
                 rbcp_ack <= '1';
-                ch_enable(int_ch*2+0) <= rbcp_wd_buf(0);
-                ch_enable(int_ch*2+1) <= rbcp_wd_buf(0);
-              elsif rbcp_re_buf = '1' then
+                ch_enable(int_ch_dec*2+0) <= rbcp_wd_dec(0);
+                ch_enable(int_ch_dec*2+1) <= rbcp_wd_dec(0);
+              elsif rbcp_re_dec = '1' then
                 rbcp_ack <= '1';
-                rbcp_rd(0) <= ch_enable(int_ch*2);
+                rbcp_rd(0) <= ch_enable(int_ch_dec*2);
               end if;
             end if;
 
-            if rbcp_addr_buf(7 downto 4) = x"1" then
-              if int_byte < 8 then
-                if rbcp_we_buf = '1' then
+            if sel_th_min_a_reg = '1' then
+              if int_byte_dec < 8 then
+                if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_min_buf(int_ch*2+0)((7-int_byte)*8 + 7 downto (7-int_byte)*8) <= rbcp_wd_buf;
-                elsif rbcp_re_buf = '1' then
+                  th_min_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
+                elsif rbcp_re_dec = '1' then
                   rbcp_ack <= '1';
-                  rbcp_rd <= th_min_buf(int_ch*2+0)((7-int_byte)*8 + 7 downto (7-int_byte)*8);
+                  rbcp_rd <= th_min_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
                 end if;
               end if;
 
-            elsif rbcp_addr_buf(7 downto 4) = x"2" then
-              if int_byte < 8 then
-                if rbcp_we_buf = '1' then
+            elsif sel_th_min_b_reg = '1' then
+              if int_byte_dec < 8 then
+                if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_min_buf(int_ch*2+1)((7-int_byte)*8 + 7 downto (7-int_byte)*8) <= rbcp_wd_buf;
-                elsif rbcp_re_buf = '1' then
+                  th_min_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
+                elsif rbcp_re_dec = '1' then
                   rbcp_ack <= '1';
-                  rbcp_rd <= th_min_buf(int_ch*2+1)((7-int_byte)*8 + 7 downto (7-int_byte)*8);
+                  rbcp_rd <= th_min_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
                 end if;
               end if;
 
-            elsif rbcp_addr_buf(7 downto 4) = x"3" then
-              if int_byte < 8 then
-                if rbcp_we_buf = '1' then
+            elsif sel_th_max_a_reg = '1' then
+              if int_byte_dec < 8 then
+                if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_max_buf(int_ch*2+0)((7-int_byte)*8 + 7 downto (7-int_byte)*8) <= rbcp_wd_buf;
-                elsif rbcp_re_buf = '1' then
+                  th_max_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
+                elsif rbcp_re_dec = '1' then
                   rbcp_ack <= '1';
-                  rbcp_rd <= th_max_buf(int_ch*2+0)((7-int_byte)*8 + 7 downto (7-int_byte)*8);
+                  rbcp_rd <= th_max_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
                 end if;
               end if;
 
-            elsif rbcp_addr_buf(7 downto 4) = x"4" then
-              if int_byte < 8 then
-                if rbcp_we_buf = '1' then
+            elsif sel_th_max_b_reg = '1' then
+              if int_byte_dec < 8 then
+                if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_max_buf(int_ch*2+1)((7-int_byte)*8 + 7 downto (7-int_byte)*8) <= rbcp_wd_buf;
-                elsif rbcp_re_buf = '1' then
+                  th_max_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
+                elsif rbcp_re_dec = '1' then
                   rbcp_ack <= '1';
-                  rbcp_rd <= th_max_buf(int_ch*2+1)((7-int_byte)*8 + 7 downto (7-int_byte)*8);
+                  rbcp_rd <= th_max_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
                 end if;
               end if;
 
