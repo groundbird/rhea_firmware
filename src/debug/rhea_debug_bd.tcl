@@ -121,29 +121,22 @@ foreach cell {dlmb_bram_if_cntlr ilmb_bram_if_cntlr} {
     connect_bd_net [get_bd_pins rst_100/bus_struct_reset]     [get_bd_pins ${cell}/LMB_Rst]
 }
 
-# --- MDM (Microblaze Debug Module – provides JTAG UART) ---
+# --- MDM (Microblaze Debug Module – provides JTAG UART via BSCAN) ---
+# MDM connects only via the DEBUG interface; no AXI slave, no explicit clk/rst pins.
 create_bd_cell -type ip -vlnv xilinx.com:ip:mdm:3.2 mdm_0
 connect_bd_intf_net [get_bd_intf_pins mdm_0/MBDEBUG_0] [get_bd_intf_pins microblaze_0/DEBUG]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins mdm_0/S_AXI_ACLK]
-connect_bd_net [get_bd_pins rst_100/peripheral_aresetn] [get_bd_pins mdm_0/S_AXI_ARESETN]
 
-# --- AXI Interconnect (1 master = MicroBlaze, 2 slaves = MDM AXI + GPIO) ---
+# --- AXI Interconnect (1 master = MicroBlaze, 1 slave = GPIO) ---
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_periph
-set_property CONFIG.NUM_MI {2} [get_bd_cells axi_periph]
+set_property CONFIG.NUM_MI {1} [get_bd_cells axi_periph]
 connect_bd_intf_net [get_bd_intf_pins microblaze_0/M_AXI_DP] \
                     [get_bd_intf_pins axi_periph/S00_AXI]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]        [get_bd_pins axi_periph/ACLK]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]        [get_bd_pins axi_periph/S00_ACLK]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]        [get_bd_pins axi_periph/M00_ACLK]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]        [get_bd_pins axi_periph/M01_ACLK]
+connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]          [get_bd_pins axi_periph/ACLK]
+connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]          [get_bd_pins axi_periph/S00_ACLK]
+connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]          [get_bd_pins axi_periph/M00_ACLK]
 connect_bd_net [get_bd_pins rst_100/interconnect_aresetn] [get_bd_pins axi_periph/ARESETN]
 connect_bd_net [get_bd_pins rst_100/peripheral_aresetn]   [get_bd_pins axi_periph/S00_ARESETN]
 connect_bd_net [get_bd_pins rst_100/peripheral_aresetn]   [get_bd_pins axi_periph/M00_ARESETN]
-connect_bd_net [get_bd_pins rst_100/peripheral_aresetn]   [get_bd_pins axi_periph/M01_ARESETN]
-
-# Connect MDM AXI slave (M00)
-connect_bd_intf_net [get_bd_intf_pins axi_periph/M00_AXI] \
-                    [get_bd_intf_pins mdm_0/S_AXI]
 
 # --- AXI GPIO ---
 # Channel 1: 8-bit output (SPI + LEDs)
