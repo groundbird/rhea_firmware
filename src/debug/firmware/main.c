@@ -34,7 +34,7 @@
  *   [0]    ADC_SDO      (adc_sdo18)
  *   [1]    DAC_SDO      (dac_sdo18)
  *   [2]    CLK_LOCKED   (MMCM locked on clk_ab)
- *   [23:3] FREQ_COUNT   (clk_freq_counter count_out[20:0])
+ *   [22:3] FREQ_COUNT   (clk_freq_counter count_out[19:0])
  */
 
 #include "xil_printf.h"
@@ -62,7 +62,7 @@
 #define BIT_DAC_SDO     (1u << 1)
 #define BIT_CLK_LOCKED  (1u << 2)
 #define FREQ_COUNT_SHIFT 3
-#define FREQ_COUNT_MASK  0x1FFFFF   /* 21 bits */
+#define FREQ_COUNT_MASK  0xFFFFF    /* 20 bits */
 
 /* SPI clock half-period: ~5 us each side → ~100 kHz */
 #define SPI_HALF_US     5

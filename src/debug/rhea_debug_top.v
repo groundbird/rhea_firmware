@@ -112,7 +112,8 @@ module rhea_debug_top (
     assign gpio2_i[0]    = adc_sdo18;
     assign gpio2_i[1]    = dac_sdo18;
     assign gpio2_i[2]    = clk_ab_locked;
-    assign gpio2_i[23:3] = freq_count[20:0];  // 21 bits of freq count
+    assign gpio2_i[22:3] = freq_count[19:0];  // 20 bits of freq count
+    assign gpio2_i[23]   = 1'b0;             // unused
 
     // Static outputs
     assign adc_reset18 = 1'b0;   // keep ADC out of reset
