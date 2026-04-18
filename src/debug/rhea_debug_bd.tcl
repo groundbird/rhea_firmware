@@ -111,9 +111,14 @@ connect_bd_intf_net [get_bd_intf_pins microblaze_0/ILMB]           [get_bd_intf_
 connect_bd_intf_net [get_bd_intf_pins ilmb_v10/LMB_Sl_0]          [get_bd_intf_pins ilmb_bram_if_cntlr/SLMB]
 connect_bd_intf_net [get_bd_intf_pins ilmb_bram_if_cntlr/BRAM_PORT] [get_bd_intf_pins lmb_bram/BRAM_PORTB]
 # LMB clk/rst
-foreach cell {dlmb_v10 ilmb_v10 dlmb_bram_if_cntlr ilmb_bram_if_cntlr} {
-    connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins ${cell}/LMB_Clk]
-    connect_bd_net [get_bd_pins rst_100/bus_struct_reset] [get_bd_pins ${cell}/SYS_Rst]
+# lmb_v10 uses SYS_Rst; lmb_bram_if_cntlr uses LMB_Rst
+foreach cell {dlmb_v10 ilmb_v10} {
+    connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]          [get_bd_pins ${cell}/LMB_Clk]
+    connect_bd_net [get_bd_pins rst_100/bus_struct_reset]     [get_bd_pins ${cell}/SYS_Rst]
+}
+foreach cell {dlmb_bram_if_cntlr ilmb_bram_if_cntlr} {
+    connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]          [get_bd_pins ${cell}/LMB_Clk]
+    connect_bd_net [get_bd_pins rst_100/bus_struct_reset]     [get_bd_pins ${cell}/LMB_Rst]
 }
 
 # --- MDM (Microblaze Debug Module – provides JTAG UART) ---
