@@ -152,7 +152,7 @@ set_property -dict [list \
 ] [get_bd_cells axi_gpio_0]
 # 0x0C = 0000_1100: adc_n_en18=1, dac_n_en18=1 (both CS deasserted at reset)
 
-connect_bd_intf_net [get_bd_intf_pins axi_periph/M01_AXI] \
+connect_bd_intf_net [get_bd_intf_pins axi_periph/M00_AXI] \
                     [get_bd_intf_pins axi_gpio_0/S_AXI]
 connect_bd_net [get_bd_pins clk_wiz_0/clk_out1]        [get_bd_pins axi_gpio_0/s_axi_aclk]
 connect_bd_net [get_bd_pins rst_100/peripheral_aresetn] [get_bd_pins axi_gpio_0/s_axi_aresetn]
@@ -191,7 +191,8 @@ save_bd_design
 # Generate BD wrapper and add as top
 # -----------------------------------------------------------------------------
 make_wrapper -files [get_files rhea_debug_bd.bd] -top
-set wrapper [glob ${origin_dir}/${proj_name}/${proj_name}.srcs/sources_1/bd/rhea_debug_bd/hdl/rhea_debug_bd_wrapper.v]
+set bd_hdl_dir ${origin_dir}/${proj_name}/${proj_name}.srcs/sources_1/bd/rhea_debug_bd/hdl
+set wrapper [glob -- ${bd_hdl_dir}/rhea_debug_bd_wrapper.v]
 add_files -norecurse ${wrapper}
 update_compile_order -fileset sources_1
 
