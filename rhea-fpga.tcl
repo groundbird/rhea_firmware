@@ -181,6 +181,7 @@ set files [list \
  [file normalize "${origin_dir}/src/axi_sitcp/rbcp_bridge.v"] \
 ]
 add_files -norecurse -fileset $obj $files
+set_property FILE_TYPE {VHDL 2008} [get_files "${origin_dir}/src/vhdl/formatter.vhd"]
 
 set file "$origin_dir/src/vhdl/rhea_pkg.vhd"
 set file [file normalize $file]
