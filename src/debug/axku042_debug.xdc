@@ -10,7 +10,7 @@
 set_property PACKAGE_PIN AK17 [get_ports sysclk_200MHz_p]
 set_property PACKAGE_PIN AK16 [get_ports sysclk_200MHz_n]
 set_property IOSTANDARD LVDS [get_ports {sysclk_200MHz_p sysclk_200MHz_n}]
-create_clock -name sysclk_200 -period 5.000 [get_ports sysclk_200MHz_p]
+# create_clock is omitted here: clk_wiz in-context XDC already defines it
 
 # -----------------------------------------------------------------------------
 # Reset button (active-low)
