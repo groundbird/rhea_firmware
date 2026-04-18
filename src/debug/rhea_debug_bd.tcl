@@ -60,6 +60,7 @@ set_property -dict [list \
 ] [get_bd_cells clk_wiz_0]
 # Expose differential clock input as external port
 create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_IN1_D
+set_property CONFIG.FREQ_HZ 200000000 [get_bd_intf_ports CLK_IN1_D]
 connect_bd_intf_net [get_bd_intf_ports CLK_IN1_D] [get_bd_intf_pins clk_wiz_0/CLK_IN1_D]
 
 # --- Reset port ---
