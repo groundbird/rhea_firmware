@@ -56,15 +56,23 @@ module rhea_debug_top (
     );
 
     // -----------------------------------------------------------------------
-    // MMCM on clk_ab to check lock (200 MHz in → 200 MHz out, just for lock)
+    // BUFG on clk_ab: required for routing clk_ab_se to sequential logic
+    // MMCM takes IBUFDS output directly (no BUFG before MMCM – standard practice)
+    // freq_counter uses the BUFG output
+    // -----------------------------------------------------------------------
+    wire clk_ab_buf;
+    BUFG u_bufg_ab (
+        .I (clk_ab_se),
+        .O (clk_ab_buf)
+    );
+
+    // -----------------------------------------------------------------------
+    // MMCM on clk_ab: used only for lock detection (200 MHz in → lock)
+    // CLKOUT0 is unused; leave it unconnected to avoid floating-output issues.
     // -----------------------------------------------------------------------
     wire clk_ab_locked;
-    wire clk_ab_mmcm_out;  // unused, just need locked
     wire clk_ab_mmcm_fb;
     wire clk_ab_mmcm_fb_buf;
-    wire clk_ab_mmcm_rst;
-
-    assign clk_ab_mmcm_rst = ~cpu_reset;
 
     MMCME3_BASE #(
         .BANDWIDTH          ("OPTIMIZED"),
@@ -74,21 +82,21 @@ module rhea_debug_top (
         .CLKIN1_PERIOD      (5.0),    // 200 MHz = 5 ns
         .STARTUP_WAIT       ("FALSE")
     ) u_mmcm_ab (
-        .CLKIN1   (clk_ab_se),
+        .CLKIN1   (clk_ab_se),        // IBUFDS output directly into MMCM
         .CLKFBIN  (clk_ab_mmcm_fb_buf),
-        .CLKOUT0  (clk_ab_mmcm_out),
+        .CLKOUT0  (),                  // unused – leave unconnected
         .CLKFBOUT (clk_ab_mmcm_fb),
         .LOCKED   (clk_ab_locked),
         .PWRDWN   (1'b0),
-        .RST      (clk_ab_mmcm_rst)
+        .RST      (~cpu_reset)         // active-high; cpu_reset is active-low w/ PULLUP
     );
     BUFG u_bufg_mmcm_fb (
-        .I(clk_ab_mmcm_fb),
-        .O(clk_ab_mmcm_fb_buf)
+        .I (clk_ab_mmcm_fb),
+        .O (clk_ab_mmcm_fb_buf)
     );
 
     // -----------------------------------------------------------------------
-    // Frequency counter: clk_ab_se counted vs mb_clk (from BD)
+    // Frequency counter: clk_ab_buf (via BUFG) counted vs mb_clk (from BD)
     // -----------------------------------------------------------------------
     wire        mb_clk;      // 100 MHz from block design clk_wiz
     wire        mb_rst;      // active-high reset from proc_sys_reset in BD
@@ -97,7 +105,7 @@ module rhea_debug_top (
 
     clk_freq_counter u_freq_ctr (
         .clk_ref   (mb_clk),
-        .clk_meas  (clk_ab_se),
+        .clk_meas  (clk_ab_buf),      // BUFG-buffered clock to drive FFs
         .rst       (mb_rst),
         .count_out (freq_count),
         .done      (freq_done)
