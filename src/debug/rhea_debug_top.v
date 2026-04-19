@@ -1,7 +1,7 @@
 // rhea_debug_top.v
 // Debug top-level for AXKU042 / rhea FMC board.
 // Verifies:
-//   1. clk_ab_p/n (200 MHz differential FMC clock) via MMCM lock + frequency counter
+//   1. clk_ab_p/n (200 MHz differential FMC clock) via Clocking Wizard lock + frequency counter
 //   2. SPI communication with DAC3283 and ADS4249 via bit-bang GPIO
 //
 // MicroBlaze (with MDM JTAG-UART) is instantiated in the block design wrapper.
@@ -16,7 +16,7 @@
 // GPIO channel 2 – INPUT (24-bit), read by MicroBlaze:
 //   [0]     ADC_SDO      ← adc_sdo18
 //   [1]     DAC_SDO      ← dac_sdo18
-//   [2]     CLK_LOCKED   ← MMCM locked on clk_ab
+//   [2]     CLK_LOCKED   ← Clocking Wizard locked on clk_ab
 //   [23:3]  FREQ_COUNT   ← clk_freq_counter count_out[20:0] (21 bits)
 
 `default_nettype none
@@ -46,57 +46,14 @@ module rhea_debug_top (
 );
 
     // -----------------------------------------------------------------------
-    // clk_ab: differential → single-ended
+    // clk_ab is handled inside the block design by a dedicated Clocking Wizard.
+    // The generated 200 MHz clock is brought back out for the frequency counter.
     // -----------------------------------------------------------------------
-    wire clk_ab_se;
-    IBUFDS #(.DIFF_TERM("TRUE"), .IBUF_LOW_PWR("FALSE")) u_ibufds_ab (
-        .I  (clk_ab_p),
-        .IB (clk_ab_n),
-        .O  (clk_ab_se)
-    );
-
-    // -----------------------------------------------------------------------
-    // BUFG on clk_ab: required for routing clk_ab_se to sequential logic
-    // MMCM takes IBUFDS output directly (no BUFG before MMCM – standard practice)
-    // freq_counter uses the BUFG output
-    // -----------------------------------------------------------------------
-    wire clk_ab_buf;
-    BUFG u_bufg_ab (
-        .I (clk_ab_se),
-        .O (clk_ab_buf)
-    );
-
-    // -----------------------------------------------------------------------
-    // MMCM on clk_ab: used only for lock detection (200 MHz in → lock)
-    // CLKOUT0 is unused; leave it unconnected to avoid floating-output issues.
-    // -----------------------------------------------------------------------
+    wire clk_ab_200;
     wire clk_ab_locked;
-    wire clk_ab_mmcm_fb;
-    wire clk_ab_mmcm_fb_buf;
-
-    MMCME3_BASE #(
-        .BANDWIDTH          ("OPTIMIZED"),
-        .CLKFBOUT_MULT_F    (5.0),    // VCO = 200*5 = 1000 MHz
-        .DIVCLK_DIVIDE      (1),
-        .CLKOUT0_DIVIDE_F   (5.0),    // 1000/5 = 200 MHz
-        .CLKIN1_PERIOD      (5.0),    // 200 MHz = 5 ns
-        .STARTUP_WAIT       ("FALSE")
-    ) u_mmcm_ab (
-        .CLKIN1   (clk_ab_se),        // IBUFDS output directly into MMCM
-        .CLKFBIN  (clk_ab_mmcm_fb_buf),
-        .CLKOUT0  (),                  // unused – leave unconnected
-        .CLKFBOUT (clk_ab_mmcm_fb),
-        .LOCKED   (clk_ab_locked),
-        .PWRDWN   (1'b0),
-        .RST      (~cpu_reset)         // active-high; cpu_reset is active-low w/ PULLUP
-    );
-    BUFG u_bufg_mmcm_fb (
-        .I (clk_ab_mmcm_fb),
-        .O (clk_ab_mmcm_fb_buf)
-    );
 
     // -----------------------------------------------------------------------
-    // Frequency counter: clk_ab_buf (via BUFG) counted vs mb_clk (from BD)
+    // Frequency counter: Clocking Wizard 200 MHz counted vs mb_clk (from BD)
     // -----------------------------------------------------------------------
     wire        mb_clk;      // 100 MHz from block design clk_wiz
     wire        mb_rst;      // active-high reset from proc_sys_reset in BD
@@ -105,7 +62,7 @@ module rhea_debug_top (
 
     clk_freq_counter u_freq_ctr (
         .clk_ref   (mb_clk),
-        .clk_meas  (clk_ab_buf),      // BUFG-buffered clock to drive FFs
+        .clk_meas  (clk_ab_200),
         .rst       (mb_rst),
         .count_out (freq_count),
         .done      (freq_done)
@@ -142,11 +99,16 @@ module rhea_debug_top (
         // Differential sysclk in
         .CLK_IN1_D_clk_p   (sysclk_200MHz_p),
         .CLK_IN1_D_clk_n   (sysclk_200MHz_n),
+        // Differential FMC clk_ab in
+        .CLK_AB_IN_D_clk_p (clk_ab_p),
+        .CLK_AB_IN_D_clk_n (clk_ab_n),
         // Reset (active-low from board, BD wrapper inverts internally)
         .reset              (~cpu_reset),
         // Clocks out to top-level logic
         .mb_clk             (mb_clk),
         .mb_rst             (mb_rst),
+        .clk_ab_200         (clk_ab_200),
+        .clk_ab_locked      (clk_ab_locked),
         // GPIO
         .gpio1_tri_o        (gpio1_o),
         .gpio2_tri_i        (gpio2_i)

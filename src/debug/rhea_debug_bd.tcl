@@ -63,6 +63,21 @@ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CL
 set_property CONFIG.FREQ_HZ 200000000 [get_bd_intf_ports CLK_IN1_D]
 connect_bd_intf_net [get_bd_intf_ports CLK_IN1_D] [get_bd_intf_pins clk_wiz_0/CLK_IN1_D]
 
+# --- Clock Wizard for clk_ab (200 MHz differential in → 200 MHz out for measurement) ---
+create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_ab
+set_property -dict [list \
+    CONFIG.PRIM_SOURCE                 {Differential_clock_capable_pin} \
+    CONFIG.PRIM_IN_FREQ                {200.000} \
+    CONFIG.CLKOUT1_REQUESTED_OUT_FREQ  {200.000} \
+    CONFIG.CLKOUT1_DRIVES              {BUFG} \
+    CONFIG.USE_LOCKED                  {true} \
+    CONFIG.USE_RESET                   {false} \
+    CONFIG.CLKIN1_UI_JITTER            {0.010} \
+] [get_bd_cells clk_wiz_ab]
+create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 CLK_AB_IN_D
+set_property CONFIG.FREQ_HZ 200000000 [get_bd_intf_ports CLK_AB_IN_D]
+connect_bd_intf_net [get_bd_intf_ports CLK_AB_IN_D] [get_bd_intf_pins clk_wiz_ab/CLK_IN1_D]
+
 # --- Reset port ---
 create_bd_port -dir I -type rst reset
 set_property CONFIG.POLARITY ACTIVE_HIGH [get_bd_ports reset]
@@ -167,8 +182,12 @@ connect_bd_net [get_bd_ports gpio2_tri_i] [get_bd_pins axi_gpio_0/gpio2_io_i]
 # Expose clk/rst for top-level freq counter
 create_bd_port -dir O mb_clk
 create_bd_port -dir O mb_rst
+create_bd_port -dir O clk_ab_200
+create_bd_port -dir O clk_ab_locked
 connect_bd_net [get_bd_ports mb_clk] [get_bd_pins clk_wiz_0/clk_out1]
 connect_bd_net [get_bd_ports mb_rst] [get_bd_pins rst_100/peripheral_reset]
+connect_bd_net [get_bd_ports clk_ab_200] [get_bd_pins clk_wiz_ab/clk_out1]
+connect_bd_net [get_bd_ports clk_ab_locked] [get_bd_pins clk_wiz_ab/locked]
 
 set_property -dict [list CONFIG.C_USE_UART {1}] [get_bd_cells mdm_0]
 apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {/clk_wiz_0/clk_out1 (100 MHz)} Clk_slave {Auto} Clk_xbar {/clk_wiz_0/clk_out1 (100 MHz)} Master {/microblaze_0 (Periph)} Slave {/mdm_0/S_AXI} intc_ip {/axi_periph} master_apm {0}}  [get_bd_intf_pins mdm_0/S_AXI]
