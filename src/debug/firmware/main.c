@@ -37,6 +37,7 @@
  *   [22:3] FREQ_COUNT   (clk_freq_counter count_out[19:0])
  */
 
+#include <stdlib.h>
 #include "xil_printf.h"
 #include "xil_io.h"
 #include "sleep.h"
@@ -109,10 +110,9 @@ static void gpio_init(void)
 /* spi_sel: 0=ADC (ADS4249, CPOL=1), 1=DAC (DAC3283, CPOL=0) */
 static u16 spi_transfer16(int spi_sel, u16 tx_data)
 {
-    u32 cs_bit  = (spi_sel == 0) ? BIT_ADC_CS_N : BIT_DAC_CS_N;
-    u32 cpol    = (spi_sel == 0) ? 1 : 0;  /* CPOL */
+    u32 cs_bit   = (spi_sel == 0) ? BIT_ADC_CS_N : BIT_DAC_CS_N;
+    u32 cpol     = (spi_sel == 0) ? 1 : 0;  /* CPOL */
     u32 idle_clk = cpol ? BIT_SCLK : 0;
-    u32 active_clk = cpol ? 0 : BIT_SCLK;
 
     u32 base = BIT_ADC_CS_N | BIT_DAC_CS_N;  /* both CS deasserted */
     u16 rx_data = 0;
@@ -174,18 +174,18 @@ static u16 spi_transfer16(int spi_sel, u16 tx_data)
  *   Reg 0x00 (CONFIG_A), bit4 SIF4_ENA = 1 → SDO pin driven (4-wire mode)
  *   Must be written BEFORE any read, while still in 3-wire mode.
  * ----------------------------------------------------------------------- */
-static void dac3283_enable_4wire(void)
-{
-    /* Reg 0x17, bit2 = SIF4_ENA: 1 → SDO pin driven (4-wire mode) */
-    dac3283_write(0x17, 0x04);
-    usleep(10);
-}
-
 static void dac3283_write(u8 addr, u8 data)
 {
     /* bit15=0(write), bit14:13=00, bit12:8=addr[4:0], bit7:0=data */
     u16 tx = (u16)(((addr & 0x1F) << 8) | data);
     spi_transfer16(1, tx);
+}
+
+static void dac3283_enable_4wire(void)
+{
+    /* Reg 0x17, bit2 = SIF4_ENA: 1 → SDO pin driven (4-wire mode) */
+    dac3283_write(0x17, 0x04);
+    usleep(10);
 }
 
 static u8 dac3283_read(u8 addr)

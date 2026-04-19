@@ -170,6 +170,9 @@ create_bd_port -dir O mb_rst
 connect_bd_net [get_bd_ports mb_clk] [get_bd_pins clk_wiz_0/clk_out1]
 connect_bd_net [get_bd_ports mb_rst] [get_bd_pins rst_100/peripheral_reset]
 
+set_property -dict [list CONFIG.C_USE_UART {1}] [get_bd_cells mdm_0]
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { Clk_master {/clk_wiz_0/clk_out1 (100 MHz)} Clk_slave {Auto} Clk_xbar {/clk_wiz_0/clk_out1 (100 MHz)} Master {/microblaze_0 (Periph)} Slave {/mdm_0/S_AXI} intc_ip {/axi_periph} master_apm {0}}  [get_bd_intf_pins mdm_0/S_AXI]
+
 # -----------------------------------------------------------------------------
 # Address map
 # -----------------------------------------------------------------------------
