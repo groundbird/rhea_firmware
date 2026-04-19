@@ -60,6 +60,11 @@ module rhea_debug_top (
     // -----------------------------------------------------------------------
     wire clk_ab_locked;
     wire clk_ab_mmcm_out;  // unused, just need locked
+    wire clk_ab_mmcm_fb;
+    wire clk_ab_mmcm_fb_buf;
+    wire clk_ab_mmcm_rst;
+
+    assign clk_ab_mmcm_rst = ~cpu_reset;
 
     MMCME3_BASE #(
         .BANDWIDTH          ("OPTIMIZED"),
@@ -70,14 +75,17 @@ module rhea_debug_top (
         .STARTUP_WAIT       ("FALSE")
     ) u_mmcm_ab (
         .CLKIN1   (clk_ab_se),
-        .CLKFBIN  (clk_ab_mmcm_fb),
+        .CLKFBIN  (clk_ab_mmcm_fb_buf),
         .CLKOUT0  (clk_ab_mmcm_out),
         .CLKFBOUT (clk_ab_mmcm_fb),
         .LOCKED   (clk_ab_locked),
         .PWRDWN   (1'b0),
-        .RST      (1'b0)
+        .RST      (clk_ab_mmcm_rst)
     );
-    wire clk_ab_mmcm_fb;
+    BUFG u_bufg_mmcm_fb (
+        .I(clk_ab_mmcm_fb),
+        .O(clk_ab_mmcm_fb_buf)
+    );
 
     // -----------------------------------------------------------------------
     // Frequency counter: clk_ab_se counted vs mb_clk (from BD)
