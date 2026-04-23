@@ -86,7 +86,9 @@ entity rhea is
     pmod_sgswp_in  : in     std_logic;
     -- EEPROM
     IIC_MAIN_SDA   : inout  std_logic;
-    IIC_MAIN_SCL   : out    std_logic);
+    IIC_MAIN_SCL   : out    std_logic;
+    -- Power Good
+    pg_c2m         : out    std_logic);
 
 --phy_mdio       : inout  std_logic;
 --phy_mdc        : out    std_logic;
@@ -1924,6 +1926,7 @@ begin
 --  rbcp_db_probe( 1) <= sitcp_status(15 downto  8);
 
   user_led <= sitcp_status(3 downto 0);
+  pg_c2m   <= '1';
 
   ---------------------------------------------------------------------------
   -- Ethernet Mode
