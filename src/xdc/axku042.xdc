@@ -179,6 +179,14 @@ set_property IOSTANDARD LVCMOS18 [get_ports pmod_sync_in]
 set_property IOSTANDARD LVCMOS18 [get_ports pmod_sgswp_in]
 
 # -----------------------------------------------------------------------------
+# Power-good signal (active-high)
+# Note on AXKU042 this is connected to BANK65 which has 1.8V interface level.
+# -----------------------------------------------------------------------------
+
+set_property PACKAGE_PIN AB20 [get_ports pg_c2m]
+set_property IOSTANDARD LVCMOS18 [get_ports pg_c2m]
+
+# -----------------------------------------------------------------------------
 # Keep ADC/DAC and system/ethernet clock families asynchronous
 # -----------------------------------------------------------------------------
 set_clock_groups -asynchronous \
