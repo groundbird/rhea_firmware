@@ -815,7 +815,7 @@ begin
       IB => sysclk_200MHz_n,
       O  => clk_int_pre);
 
-  u_mmcm_sysclk : MMCME4_BASE
+  u_mmcm_sysclk : MMCME3_BASE
     generic map (
       BANDWIDTH          => "OPTIMIZED",
       CLKFBOUT_MULT_F    => 5.0,
