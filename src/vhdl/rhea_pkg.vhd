@@ -36,12 +36,12 @@ package rhea_pkg is
   ---------------------------------------------------------------------------
   -- Global Constants
   ---------------------------------------------------------------------------
-  constant RHEA_VERSIONS    : integer := 2022052501; -- YYYYMMDDNN
+  constant RHEA_VERSIONS    : integer := 2026042701; -- YYYYMMDDNN
   constant ENABLE_SNAPSHOT  : integer := 0;
   constant ENABLE_TRIGGER   : integer := 1;
-  constant N_CHANNEL_LOG2   : integer := 6;
-  constant N_CH_TRIG_LOG2   : integer := 6;
-  constant N_CHANNEL_EN     : integer := 64;
+  constant N_CHANNEL_LOG2   : integer := 3;
+  constant N_CH_TRIG_LOG2   : integer := 3;
+  constant N_CHANNEL_EN     : integer := 8;
   constant N_SUMUP_OFFSET   : integer := 2; -- 0 ~ N_CHANNEL_LOG2XS
   ---
   constant N_CHANNEL        : integer := 2 ** N_CHANNEL_LOG2;

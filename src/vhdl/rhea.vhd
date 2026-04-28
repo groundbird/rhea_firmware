@@ -1473,7 +1473,7 @@ begin
       rbcp_rd        => rbcp_rd,
       iic_main_sda   => IIC_MAIN_SDA,
       iic_main_scl   => IIC_MAIN_SCL,
-      force_defaultn => user_key0_n );
+      force_defaultn => '1');
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
