@@ -96,11 +96,14 @@ end rhea;
 
 architecture Behavioral of rhea is
 
-  signal clk_int_200 : std_logic;
-  signal reset_int   : std_logic;
-  signal clk_int_loc : std_logic;
-  signal clk_int_pre : std_logic;
-  signal cpu_reset_i : std_logic;
+  signal clk_int_200        : std_logic;
+  signal reset_int          : std_logic;
+  signal clk_int_loc        : std_logic;
+  signal clk_int_pre        : std_logic;
+  signal clk_int_mmcm_out   : std_logic;
+  signal clk_int_mmcm_fb    : std_logic;
+  signal clk_int_mmcm_fb_pre: std_logic;
+  signal cpu_reset_i        : std_logic;
 
   component adc_clock_man is
     port (
@@ -812,12 +815,48 @@ begin
       IB => sysclk_200MHz_n,
       O  => clk_int_pre);
 
+  u_mmcm_sysclk : MMCME4_BASE
+    generic map (
+      BANDWIDTH          => "OPTIMIZED",
+      CLKFBOUT_MULT_F    => 5.0,
+      CLKFBOUT_PHASE     => 0.0,
+      CLKIN1_PERIOD      => 5.0,
+      CLKOUT0_DIVIDE_F   => 5.0,
+      CLKOUT0_PHASE      => 0.0,
+      CLKOUT0_DUTY_CYCLE => 0.5,
+      CLKOUT4_CASCADE    => "FALSE",
+      DIVCLK_DIVIDE      => 1,
+      REF_JITTER1        => 0.01,
+      STARTUP_WAIT       => "FALSE")
+    port map (
+      CLKIN1    => clk_int_pre,
+      CLKFBIN   => clk_int_mmcm_fb,
+      CLKOUT0   => clk_int_mmcm_out,
+      CLKOUT0B  => open,
+      CLKOUT1   => open,
+      CLKOUT1B  => open,
+      CLKOUT2   => open,
+      CLKOUT2B  => open,
+      CLKOUT3   => open,
+      CLKOUT3B  => open,
+      CLKOUT4   => open,
+      CLKOUT5   => open,
+      CLKOUT6   => open,
+      CLKFBOUT  => clk_int_mmcm_fb_pre,
+      CLKFBOUTB => open,
+      LOCKED    => clk_int_loc,
+      PWRDWN    => '0',
+      RST       => cpu_reset_i);
+
+  u_bufg_mmcm_fb : BUFG
+    port map (
+      I => clk_int_mmcm_fb_pre,
+      O => clk_int_mmcm_fb);
+
   u_bufg_sysclk : BUFG
     port map (
-      I => clk_int_pre,
+      I => clk_int_mmcm_out,
       O => clk_int_200);
-
-  clk_int_loc <= '1';
 
 
   ADC_Clock_inst : adc_clock_man
