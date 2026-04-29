@@ -99,11 +99,14 @@ begin
   process(clk)
   begin
     if rising_edge(clk) then
-      valid_pre <= '1' when s_fmt = send_header or
-                            s_fmt = send_ts      or
-                            s_fmt = send_data    or
-                            s_fmt = send_footer
-                   else '0';
+      if s_fmt = send_header or
+         s_fmt = send_ts     or
+         s_fmt = send_data   or
+         s_fmt = send_footer then
+        valid_pre <= '1';
+      else
+        valid_pre <= '0';
+      end if;
       valid <= valid_pre;
     end if;
   end process;
