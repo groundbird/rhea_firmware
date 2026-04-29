@@ -35,6 +35,9 @@ entity sitcp is
     rbcp_re        : out   std_logic;
     rbcp_ack       : in    std_logic;
     rbcp_rd        : in    std_logic_vector(7 downto 0);
+    eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
+    eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
+    eeprom_dbg_status : out   std_logic_vector(7 downto 0);
     -- EEPROM
     iic_main_sda   : inout std_logic;
     iic_main_scl   : out   std_logic;
@@ -70,6 +73,9 @@ architecture Behavioral of sitcp is
       rbcp_re         : out   std_logic;
       rbcp_ack        : in    std_logic;
       rbcp_rd         : in    std_logic_vector(7 downto 0);
+      eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
+      eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
+      eeprom_dbg_status : out   std_logic_vector(7 downto 0);
       iic_main_sda    : inout std_logic;
       iic_main_scl    : out   std_logic);
   end component axku042_sitcp_core;
@@ -103,6 +109,9 @@ begin
       rbcp_re         => rbcp_re,
       rbcp_ack        => rbcp_ack,
       rbcp_rd         => rbcp_rd,
+      eeprom_dbg_addr   => eeprom_dbg_addr,
+      eeprom_dbg_data   => eeprom_dbg_data,
+      eeprom_dbg_status => eeprom_dbg_status,
       iic_main_sda    => iic_main_sda,
       iic_main_scl    => iic_main_scl);
 

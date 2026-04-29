@@ -143,7 +143,10 @@ architecture Behavioral of rhea is
       rbcp_ack  : out std_logic;
       rbcp_addr : in  std_logic_vector(31 downto 0);
       rbcp_wd   : in  std_logic_vector( 7 downto 0);
-      rbcp_rd   : out std_logic_vector( 7 downto 0));
+      rbcp_rd   : out std_logic_vector( 7 downto 0);
+      eeprom_dbg_addr   : out std_logic_vector(6 downto 0);
+      eeprom_dbg_data   : in  std_logic_vector(7 downto 0);
+      eeprom_dbg_status : in  std_logic_vector(7 downto 0));
   end component info;
   
   signal reset_int_info : std_logic;
@@ -485,6 +488,9 @@ architecture Behavioral of rhea is
       rbcp_re        : out   std_logic;
       rbcp_ack       : in    std_logic;
       rbcp_rd        : in    std_logic_vector(7 downto 0);
+      eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
+      eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
+      eeprom_dbg_status : out   std_logic_vector(7 downto 0);
       -- EEPROM
       iic_main_sda   : inout std_logic;
       iic_main_scl   : out   std_logic;
@@ -506,6 +512,9 @@ architecture Behavioral of rhea is
   signal rbcp_re       : std_logic;
   signal rbcp_ack      : std_logic;
   signal rbcp_rd       : std_logic_vector(7 downto 0);
+  signal eeprom_dbg_addr   : std_logic_vector(6 downto 0);
+  signal eeprom_dbg_data   : std_logic_vector(7 downto 0);
+  signal eeprom_dbg_status : std_logic_vector(7 downto 0);
 
   component rbcp_transfer_to_sitcp is
     port(
@@ -913,7 +922,10 @@ begin
       rbcp_ack  => rbcp_ack_int_info,
       rbcp_addr => rbcp_addr_int_info,
       rbcp_wd   => rbcp_wd_int_info,
-      rbcp_rd   => rbcp_rd_int_info);
+      rbcp_rd   => rbcp_rd_int_info,
+      eeprom_dbg_addr   => eeprom_dbg_addr,
+      eeprom_dbg_data   => eeprom_dbg_data,
+      eeprom_dbg_status => eeprom_dbg_status);
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
@@ -1510,6 +1522,9 @@ begin
       rbcp_re        => rbcp_re,
       rbcp_ack       => rbcp_ack,
       rbcp_rd        => rbcp_rd,
+      eeprom_dbg_addr   => eeprom_dbg_addr,
+      eeprom_dbg_data   => eeprom_dbg_data,
+      eeprom_dbg_status => eeprom_dbg_status,
       iic_main_sda   => IIC_MAIN_SDA,
       iic_main_scl   => IIC_MAIN_SCL,
       force_defaultn => '1');

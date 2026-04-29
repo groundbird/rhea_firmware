@@ -31,9 +31,19 @@ module axku042_sitcp_core (
     output wire        rbcp_re,
     input  wire        rbcp_ack,
     input  wire [7:0]  rbcp_rd,
+    input  wire [6:0]  eeprom_dbg_addr,
+    output wire [7:0]  eeprom_dbg_data,
+    output wire [7:0]  eeprom_dbg_status,
     inout  wire        iic_main_sda,
     output wire        iic_main_scl
 );
+
+    // JTAG-side debug helpers:
+    // - VIO drives a second shadow-RAM address so we can inspect EEPROM contents
+    //   even when SiTCP/RBCP never comes up.
+    // - ILA captures EEPROM/SiTCP boot activity around the same logic.
+    wire [6:0] eeprom_dbg_addr_vio;
+    wire [7:0] eeprom_dbg_data_vio;
 
     localparam [4:0] PHY_ADDR_PARAM = 5'd3;
 
@@ -227,6 +237,9 @@ module axku042_sitcp_core (
     wire sda_in;
     wire sda_out_unused;
     wire sitcp_eeprom_rst;
+    wire eeprom_dbg_done;
+    wire eeprom_dbg_error;
+    wire eeprom_dbg_lc04_reset;
 
     IOBUF u_iobuf_sda (
         .I (1'b0),
@@ -238,6 +251,26 @@ module axku042_sitcp_core (
     wire sitcp_core_rst = btn_rst | ~mmcm_locked | ~phy_reset_nr | sitcp_eeprom_rst;
     assign sitcp_rst = sitcp_core_rst;
     assign status = {12'd0, tcp_open_ack, tcp_tx_full, rbcp_act, mmcm_locked};
+    assign eeprom_dbg_status = {4'd0, eeprom_dbg_lc04_reset, sitcp_eeprom_rst, eeprom_dbg_error, eeprom_dbg_done};
+
+    sitcp_eeprom_vio u_sitcp_eeprom_vio (
+        .clk       (clk_200),
+        .probe_in0 (eeprom_dbg_data_vio),
+        .probe_in1 (eeprom_dbg_status),
+        .probe_out0(eeprom_dbg_addr_vio)
+    );
+
+    sitcp_eeprom_ila u_sitcp_eeprom_ila (
+        .clk   (clk_200),
+        .probe0(eeprom_dbg_status),
+        .probe1(eeprom_dbg_addr_vio),
+        .probe2(eeprom_dbg_data_vio),
+        .probe3({7'd0, eeprom_cs}),
+        .probe4({7'd0, eeprom_sk}),
+        .probe5({7'd0, eeprom_di}),
+        .probe6({7'd0, eeprom_do}),
+        .probe7({6'd0, force_defaultn, sitcp_eeprom_rst})
+    );
 
     WRAP_SiTCP_GMII_XCKU_32K #(
         .TIM_PERIOD(8'd200)
@@ -307,6 +340,13 @@ module axku042_sitcp_core (
         .M24C08_SDAT_OUT (sda_drive),
         .RESET_IN        (rst),
         .SiTCP_RESET_OUT (sitcp_eeprom_rst),
+        .DEBUG_ADDR_IN   (eeprom_dbg_addr),
+        .DEBUG_DATA_OUT  (eeprom_dbg_data),
+        .DEBUG_ADDR2_IN  (eeprom_dbg_addr_vio),
+        .DEBUG_DATA2_OUT (eeprom_dbg_data_vio),
+        .DEBUG_DONE_OUT  (eeprom_dbg_done),
+        .DEBUG_ERROR_OUT (eeprom_dbg_error),
+        .DEBUG_LC04_RESET_OUT(eeprom_dbg_lc04_reset),
         .SYSCLK_IN       (clk_200)
     );
 

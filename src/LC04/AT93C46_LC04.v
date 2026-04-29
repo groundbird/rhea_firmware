@@ -45,6 +45,13 @@ module AT93C46_LC04 #(
 
     input  wire  RESET_IN,
     output wire  SiTCP_RESET_OUT,
+    input  wire [6:0] DEBUG_ADDR_IN,
+    output wire [7:0] DEBUG_DATA_OUT,
+    input  wire [6:0] DEBUG_ADDR2_IN,
+    output wire [7:0] DEBUG_DATA2_OUT,
+    output wire       DEBUG_DONE_OUT,
+    output wire       DEBUG_ERROR_OUT,
+    output wire       DEBUG_LC04_RESET_OUT,
 
     input  wire  SYSCLK_IN
 );
@@ -128,6 +135,8 @@ module AT93C46_LC04 #(
     wire       rd_we;
     wire [8:0] rd_addr;   // 9-bit from LC04_READER; [6:0] used for shadow RAM
     wire [7:0] rd_din;
+    wire       rd_done;
+    wire       rd_error;
 
     assign MEM_WEB  = rd_we;
     assign MEM_ADDRB = rd_addr[6:0];
@@ -147,8 +156,8 @@ module AT93C46_LC04 #(
         .MEM_ADDR_OUT   (rd_addr        ),
         .MEM_DIN_OUT    (rd_din         ),
         .SITCP_RESET_OUT(SiTCP_RESET_OUT),
-        .DONE_OUT       (               ),
-        .ERROR_OUT      (               )
+        .DONE_OUT       (rd_done        ),
+        .ERROR_OUT      (rd_error       )
     );
 
     // ------------------------------------------------------------------
@@ -190,6 +199,7 @@ module AT93C46_LC04 #(
                                                  : ADDRESS[6:0];
     assign MEM_DINA[7:0]  = IN_BUFFER[7:0];
     assign AT93C46_DO_OUT = OUT_BUFFER[7];
+    wire mem_wea_pulse = AT93C46_SK_RISE & (BIT_COUNT == 6'd17) & (OPCODE == 3'b101);
 
     reg [7:0] MEM_DOUTA_REG;
 
@@ -197,8 +207,15 @@ module AT93C46_LC04 #(
     wire AT93C46_SK_FALL;
     reg  AT93C46_SK_P0;
     reg  AT93C46_SK_P1;
+    reg [7:0] debug_shadow_ram [0:127];
+    integer debug_idx;
     assign AT93C46_SK_RISE = ~AT93C46_SK_P1 &  AT93C46_SK_P0;
     assign AT93C46_SK_FALL =  AT93C46_SK_P1 & ~AT93C46_SK_P0;
+    assign DEBUG_DATA_OUT       = debug_shadow_ram[DEBUG_ADDR_IN];
+    assign DEBUG_DATA2_OUT      = debug_shadow_ram[DEBUG_ADDR2_IN];
+    assign DEBUG_DONE_OUT       = rd_done;
+    assign DEBUG_ERROR_OUT      = rd_error;
+    assign DEBUG_LC04_RESET_OUT = lc04_reset;
 
     always @(posedge SYSCLK_IN or posedge lc04_reset) begin
         if (lc04_reset) begin
@@ -211,6 +228,9 @@ module AT93C46_LC04 #(
             IN_BUFFER       <= 8'd0;
             OPCODE          <= 3'd0;
             ADDRESS         <= 7'd0;
+            for (debug_idx = 0; debug_idx < 128; debug_idx = debug_idx + 1) begin
+                debug_shadow_ram[debug_idx] <= 8'd0;
+            end
         end else begin
             AT93C46_SK_P0 <= AT93C46_SK_IN;
             AT93C46_SK_P1 <= AT93C46_SK_P0;
@@ -228,10 +248,16 @@ module AT93C46_LC04 #(
             ADDRESS    <= ~AT93C46_SK_RISE  ? ADDRESS
                         : (BIT_COUNT == 6'd10) ? IN_BUFFER[6:0] : ADDRESS;
 
-            MEM_WEA    <= ~AT93C46_SK_RISE  ? 1'b0
-                        : (BIT_COUNT == 6'd17) & (OPCODE == 3'b101);
+            MEM_WEA    <= mem_wea_pulse;
 
             MEM_DOUTA_REG <= ~AT93C46_SK_RISE ? MEM_DOUTA_REG : MEM_DOUTA;
+
+            if (rd_we) begin
+                debug_shadow_ram[rd_addr[6:0]] <= rd_din;
+            end
+            if (mem_wea_pulse) begin
+                debug_shadow_ram[MEM_ADDRA] <= MEM_DINA;
+            end
 
             OUT_BUFFER <= ~AT93C46_SK_FALL  ? OUT_BUFFER
                         : (BIT_COUNT == 6'd9)  & (OPCODE == 3'b110) ? 8'd0

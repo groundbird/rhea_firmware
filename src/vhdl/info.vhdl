@@ -25,7 +25,10 @@ entity info is
     rbcp_ack  : out std_logic;
     rbcp_addr : in  std_logic_vector(31 downto 0);
     rbcp_wd   : in  std_logic_vector( 7 downto 0);
-    rbcp_rd   : out std_logic_vector( 7 downto 0));
+    rbcp_rd   : out std_logic_vector( 7 downto 0);
+    eeprom_dbg_addr   : out std_logic_vector(6 downto 0);
+    eeprom_dbg_data   : in  std_logic_vector(7 downto 0);
+    eeprom_dbg_status : in  std_logic_vector(7 downto 0));
 end info;
 
 architecture Behavioral of info is
@@ -48,6 +51,8 @@ architecture Behavioral of info is
     := conv_std_logic_vector(N_CH_TRIG, 8);
 
 begin
+
+  eeprom_dbg_addr <= rbcp_addr_buf(6 downto 0);
 
   rbcp_buffering : process(clk)
   begin
@@ -96,6 +101,18 @@ begin
         if rbcp_re_buf = '1' then
           rbcp_ack_buf <= '1';
           rbcp_rd_buf  <= ch_trig_buf;
+        end if;
+      end if;
+
+      if rbcp_addr_buf(31 downto 8) = x"000001" then
+        if rbcp_re_buf = '1' then
+          if rbcp_addr_buf(7 downto 0) = x"00" then
+            rbcp_ack_buf <= '1';
+            rbcp_rd_buf  <= eeprom_dbg_status;
+          elsif rbcp_addr_buf(7) = '1' then
+            rbcp_ack_buf <= '1';
+            rbcp_rd_buf  <= eeprom_dbg_data;
+          end if;
         end if;
       end if;
 
