@@ -12,3 +12,8 @@ ip/**/*.xml
 .DS_Store
 vivado/report/*
 manual/
+vivado/build/
+__pycache__/
+.vitis-jobs/
+vivado*.jou
+vivado*.log

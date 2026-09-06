@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Generate independent Ethernet ARP/ICMP/TCP test vectors using Python zlib."""
+import argparse
+import ipaddress
+import struct
+import zlib
+from pathlib import Path
+
+LOCAL_MAC = bytes.fromhex("025248454101")
+HOST_MAC = bytes.fromhex("1cc03503feaf")
+LOCAL_IP = ipaddress.IPv4Address("192.168.10.16").packed
+HOST_IP = ipaddress.IPv4Address("192.168.10.3").packed
+
+
+def checksum(data):
+    if len(data) & 1:
+        data += b"\0"
+    total = sum(struct.unpack(f"!{len(data)//2}H", data))
+    while total >> 16:
+        total = (total & 0xffff) + (total >> 16)
+    return (~total) & 0xffff
+
+
+def wire(frame):
+    frame = frame.ljust(60, b"\0")
+    return frame + struct.pack("<I", zlib.crc32(frame))
+
+
+def ip_packet(src, dst, payload, ident=0x1234, protocol=1):
+    header = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(payload), ident,
+                         0x4000, 64, protocol, 0, src, dst)
+    header = header[:10] + struct.pack("!H", checksum(header)) + header[12:]
+    return header + payload
+
+
+def icmp(kind, payload):
+    packet = struct.pack("!BBHHH", kind, 0, 0, 0xBEEF, 7) + payload
+    return packet[:2] + struct.pack("!H", checksum(packet)) + packet[4:]
+
+
+def tcp(src_ip, dst_ip, src_port, dst_port, seq, ack, flags, window, payload=b""):
+    segment = struct.pack("!HHIIBBHHH", src_port, dst_port, seq, ack,
+                          5 << 4, flags, window, 0, 0) + payload
+    pseudo = src_ip + dst_ip + struct.pack("!BBH", 0, 6, len(segment))
+    csum = checksum(pseudo + segment)
+    return segment[:16] + struct.pack("!H", csum) + segment[18:]
+
+
+def write_hex(path, data):
+    path.write_text("\n".join(f"{byte:02x}" for byte in data) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+
+    arp_body = struct.pack("!HHBBH6s4s6s4s", 1, 0x0800, 6, 4, 1,
+                           HOST_MAC, HOST_IP, bytes(6), LOCAL_IP)
+    arp_request = bytes(6) + HOST_MAC + b"\x08\x06" + arp_body
+    arp_reply_body = struct.pack("!HHBBH6s4s6s4s", 1, 0x0800, 6, 4, 2,
+                                 LOCAL_MAC, LOCAL_IP, HOST_MAC, HOST_IP)
+    arp_reply = HOST_MAC + LOCAL_MAC + b"\x08\x06" + arp_reply_body
+
+    payload = b"RHEA-open-net-icmp-vector-01"
+    request_ip = ip_packet(HOST_IP, LOCAL_IP, icmp(8, payload))
+    reply_ip = ip_packet(LOCAL_IP, HOST_IP, icmp(0, payload))
+    icmp_request = LOCAL_MAC + HOST_MAC + b"\x08\x00" + request_ip
+    icmp_reply = HOST_MAC + LOCAL_MAC + b"\x08\x00" + reply_ip
+
+    wrong_ip = ipaddress.IPv4Address("192.168.10.99").packed
+    wrong_request_ip = ip_packet(HOST_IP, wrong_ip, icmp(8, payload), ident=0x5678)
+    wrong_request = LOCAL_MAC + HOST_MAC + b"\x08\x00" + wrong_request_ip
+
+    host_port = 40000
+    host_seq = 0x12345678
+    fpga_isn = 0x52484541
+
+    def tcp_frame(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port,
+                  seq, ack, flags, window, ident, payload=b""):
+        segment = tcp(src_ip, dst_ip, src_port, dst_port, seq, ack,
+                      flags, window, payload)
+        return dst_mac + src_mac + b"\x08\x00" + ip_packet(
+            src_ip, dst_ip, segment, ident=ident, protocol=6)
+
+    tcp_syn = tcp_frame(HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP,
+                        host_port, 24, host_seq, 0, 0x02, 0xffff, 0x2000)
+    tcp_synack = tcp_frame(LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP,
+                           24, host_port, fpga_isn, host_seq + 1,
+                           0x12, 0x8000, 1)
+    tcp_ack = tcp_frame(HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP,
+                        host_port, 24, host_seq + 1, fpga_isn + 1,
+                        0x10, 0xffff, 0x2001)
+
+    def benchmark_payload(first_word):
+        return b"".join(struct.pack("<I", first_word + i) for i in range(365))
+
+    tcp_data0 = tcp_frame(LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP,
+                          24, host_port, fpga_isn + 1, host_seq + 1,
+                          0x18, 0x8000, 2, benchmark_payload(0))
+    tcp_ack0 = tcp_frame(HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP,
+                         host_port, 24, host_seq + 1, fpga_isn + 1 + 1460,
+                         0x10, 0xffff, 0x2002)
+    tcp_data1 = tcp_frame(LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP,
+                          24, host_port, fpga_isn + 1 + 1460, host_seq + 1,
+                          0x18, 0x8000, 3, benchmark_payload(365))
+
+    for name, data in {
+        "arp_request.hex": wire(arp_request),
+        "arp_reply.hex": wire(arp_reply),
+        "icmp_request.hex": wire(icmp_request),
+        "icmp_reply.hex": wire(icmp_reply),
+        "wrong_ip_request.hex": wire(wrong_request),
+        "tcp_syn.hex": wire(tcp_syn),
+        "tcp_synack.hex": wire(tcp_synack),
+        "tcp_ack.hex": wire(tcp_ack),
+        "tcp_data0.hex": wire(tcp_data0),
+        "tcp_ack0.hex": wire(tcp_ack0),
+        "tcp_data1.hex": wire(tcp_data1),
+    }.items():
+        write_hex(args.output / name, data)
+
+
+if __name__ == "__main__":
+    main()

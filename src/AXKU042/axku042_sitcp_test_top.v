@@ -34,7 +34,9 @@
 //   RX : 4-bit DDR @ rxc â†? IDDRE1 (SAME_EDGE_PIPELINED) â†? GMII 8-bit @ rxc
 //------------------------------------------------------------------------------
 
-module axku042_sitcp_test_top (
+module axku042_sitcp_test_top #(
+    parameter BENCHMARK = 0  // 0: echo, 1: counter stream + statistics
+) (
     // 200 MHz differential system clock
     input  wire       PL_CLK0_P,
     input  wire       PL_CLK0_N,
@@ -313,9 +315,9 @@ module axku042_sitcp_test_top (
     wire [7:0]  tcp_rx_data;
     wire        tcp_tx_full;
 
-    // TCP echo: RX data â†? TX data (direct loopback)
-    wire        tcp_tx_wr   = tcp_rx_wr & ~tcp_tx_full;
-    wire [7:0]  tcp_tx_data = tcp_rx_data;
+    wire        tcp_tx_wr;
+    wire [7:0]  tcp_tx_data;
+    wire        sitcp_user_rst;
 
     wire        rbcp_act;
     wire [31:0] rbcp_addr;
@@ -323,20 +325,40 @@ module axku042_sitcp_test_top (
     wire        rbcp_we;
     wire        rbcp_re;
 
-    // RBCP: immediately acknowledge, return dummy read data
-    reg        rbcp_ack_r = 0;
-    reg [7:0]  rbcp_rd_r  = 0;
-    always @(posedge clk200) begin
-        rbcp_ack_r <= rbcp_we | rbcp_re;
-        if (rbcp_re) rbcp_rd_r <= 8'hAB;
-    end
+    wire       rbcp_ack_r;
+    wire [7:0] rbcp_rd_r;
+    generate
+        if (BENCHMARK) begin : gen_benchmark
+            sitcp_benchmark u_benchmark (
+                .clk(clk200), .rst(sitcp_rst | sitcp_user_rst),
+                .tcp_open_ack(tcp_open_ack), .tcp_close_req(tcp_close_req),
+                .tcp_error(tcp_error), .tcp_tx_full(tcp_tx_full),
+                .tcp_tx_wr(tcp_tx_wr), .tcp_tx_data(tcp_tx_data),
+                .rbcp_addr(rbcp_addr), .rbcp_wd(rbcp_wd),
+                .rbcp_we(rbcp_we), .rbcp_re(rbcp_re),
+                .rbcp_ack(rbcp_ack_r), .rbcp_rd(rbcp_rd_r)
+            );
+        end else begin : gen_echo
+            assign tcp_tx_wr = tcp_rx_wr & ~tcp_tx_full;
+            assign tcp_tx_data = tcp_rx_data;
+            reg ack = 0;
+            reg [7:0] rd = 0;
+            always @(posedge clk200) begin
+                ack <= rbcp_we | rbcp_re;
+                if (rbcp_re) rd <= 8'hAB;
+            end
+            assign rbcp_ack_r = ack;
+            assign rbcp_rd_r = rd;
+        end
+    endgenerate
 
     WRAP_SiTCP_GMII_XCKU_32K #(
         .TIM_PERIOD(8'd200)  // system clock = 200 MHz
     ) u_sitcp (
         .CLK            (clk200),
         .RST            (sitcp_rst),
-        // Config: hardcoded IP, force external values
+        // Force built-in defaults: wrapper ignores EXT_* when FORCE_DEFAULTn=0.
+        // 192.168.10.16, TCP 24, RBCP 4660. No EEPROM dependency.
         .FORCE_DEFAULTn (1'b0),
         .EXT_IP_ADDR    (MY_IP),
         .EXT_TCP_PORT   (MY_TCP),
@@ -369,14 +391,14 @@ module axku042_sitcp_test_top (
         .GMII_MDIO_OUT  (mdio_out),
         .GMII_MDIO_OE   (mdio_oe),
         // User interface
-        .SiTCP_RST      (),
+        .SiTCP_RST      (sitcp_user_rst),
         .TCP_OPEN_REQ   (1'b0),
         .TCP_OPEN_ACK   (tcp_open_ack),
         .TCP_ERROR      (tcp_error),
         .TCP_CLOSE_REQ  (tcp_close_req),
         .TCP_CLOSE_ACK  (tcp_close_req),  // auto-close: echo back close request
         // TCP FIFO
-        .TCP_RX_WC      (16'hFFFF),  // always room in RX buffer
+        .TCP_RX_WC      (BENCHMARK ? 16'd0 : 16'hFFFF),
         .TCP_RX_WR      (tcp_rx_wr),
         .TCP_RX_DATA    (tcp_rx_data),
         .TCP_TX_FULL    (tcp_tx_full),
