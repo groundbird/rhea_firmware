@@ -24,7 +24,11 @@
 module LC04_READER #(
     parameter integer CLK_DIVIDER = 250,
     parameter integer NUM_BYTES   = 128,
-    parameter integer START_ADDR  = 0
+    parameter integer START_ADDR  = 0,
+    // Transactions to attempt before giving up on an unresponsive EEPROM.
+    // Without a bound, a board with no ACK keeps SITCP_RESET_OUT asserted
+    // forever, which holds the whole design in reset with no way to tell why.
+    parameter integer RETRY_MAX   = 8
 ) (
     input  wire        SYSCLK_IN,
     input  wire        RESET_IN,
@@ -207,6 +211,7 @@ module LC04_READER #(
     reg [3:0]  hl         = HL_IDLE;
     reg [8:0]  cur_addr   = START_ADDR[8:0];
     reg [9:0]  bytes_left = NUM_BYTES[9:0];
+    reg [7:0]  retry_cnt  = 8'd0;
 
     // Is this the last byte to read overall?
     wire is_last_overall = (bytes_left == 10'd1);
@@ -227,14 +232,19 @@ module LC04_READER #(
             bcmd         <= CMD_NONE;
             btx          <= 8'h00;
             send_nack    <= 1'b0;
+            retry_cnt    <= 8'd0;
         end else begin
             breq       <= 1'b0;
             MEM_WE_OUT <= 1'b0;
 
             case (hl)
                 HL_IDLE: begin
-                    if (bytes_left > 10'd0) hl <= HL_STA;
-                    else                    hl <= HL_DONE;
+                    // Give up once the EEPROM has failed to answer RETRY_MAX
+                    // times: DONE releases SiTCP, ERROR stays latched so the
+                    // failure is visible over VIO / RBCP.
+                    if (bytes_left == 10'd0)          hl <= HL_DONE;
+                    else if (retry_cnt >= RETRY_MAX[7:0]) hl <= HL_DONE;
+                    else                              hl <= HL_STA;
                 end
 
                 // START
@@ -251,7 +261,7 @@ module LC04_READER #(
                     hl   <= HL_CTRLW_W;
                 end
                 HL_CTRLW_W: if (bdone) begin
-                    if (!back_ok) begin ERROR_OUT<=1'b1; hl<=HL_STO; end
+                    if (!back_ok) begin ERROR_OUT<=1'b1; retry_cnt<=retry_cnt+8'd1; hl<=HL_STO; end
                     else hl <= HL_WADDR;
                 end
 
@@ -263,7 +273,7 @@ module LC04_READER #(
                     hl   <= HL_WADDR_W;
                 end
                 HL_WADDR_W: if (bdone) begin
-                    if (!back_ok) begin ERROR_OUT<=1'b1; hl<=HL_STO; end
+                    if (!back_ok) begin ERROR_OUT<=1'b1; retry_cnt<=retry_cnt+8'd1; hl<=HL_STO; end
                     else hl <= HL_RESTART;
                 end
 
@@ -279,7 +289,7 @@ module LC04_READER #(
                     hl   <= HL_CTRLR_W;
                 end
                 HL_CTRLR_W: if (bdone) begin
-                    if (!back_ok) begin ERROR_OUT<=1'b1; hl<=HL_STO; end
+                    if (!back_ok) begin ERROR_OUT<=1'b1; retry_cnt<=retry_cnt+8'd1; hl<=HL_STO; end
                     else hl <= HL_RXBYTE;
                 end
 
@@ -292,6 +302,7 @@ module LC04_READER #(
                     hl        <= HL_RXBYTE_W;
                 end
                 HL_RXBYTE_W: if (bdone) begin
+                    retry_cnt    <= 8'd0;   // progress: forgive earlier retries
                     MEM_WE_OUT   <= 1'b1;
                     MEM_ADDR_OUT <= cur_addr;
                     MEM_DIN_OUT  <= brx;

@@ -146,7 +146,16 @@ architecture Behavioral of rhea is
       rbcp_rd   : out std_logic_vector( 7 downto 0);
       eeprom_dbg_addr   : out std_logic_vector(6 downto 0);
       eeprom_dbg_data   : in  std_logic_vector(7 downto 0);
-      eeprom_dbg_status : in  std_logic_vector(7 downto 0));
+      eeprom_dbg_status : in  std_logic_vector(7 downto 0);
+      sitcp_mac         : in  std_logic_vector(47 downto 0);
+      sitcp_ip          : in  std_logic_vector(31 downto 0);
+      sitcp_tcp_port    : in  std_logic_vector(15 downto 0);
+      sitcp_rbcp_port   : in  std_logic_vector(15 downto 0);
+      sitcp_rst_count   : in  std_logic_vector(7 downto 0);
+      eeprom_wr_req     : out std_logic;
+      eeprom_wr_addr    : out std_logic_vector(6 downto 0);
+      eeprom_wr_data    : out std_logic_vector(7 downto 0);
+      eeprom_reload_req : out std_logic);
   end component info;
   
   signal reset_int_info : std_logic;
@@ -491,6 +500,15 @@ architecture Behavioral of rhea is
       eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
       eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
       eeprom_dbg_status : out   std_logic_vector(7 downto 0);
+      sitcp_mac         : out   std_logic_vector(47 downto 0);
+      sitcp_ip          : out   std_logic_vector(31 downto 0);
+      sitcp_tcp_port    : out   std_logic_vector(15 downto 0);
+      sitcp_rbcp_port   : out   std_logic_vector(15 downto 0);
+      sitcp_rst_count   : out   std_logic_vector(7 downto 0);
+      eeprom_wr_req     : in    std_logic;
+      eeprom_wr_addr    : in    std_logic_vector(6 downto 0);
+      eeprom_wr_data    : in    std_logic_vector(7 downto 0);
+      eeprom_reload_req : in    std_logic;
       -- EEPROM
       iic_main_sda   : inout std_logic;
       iic_main_scl   : out   std_logic;
@@ -515,6 +533,15 @@ architecture Behavioral of rhea is
   signal eeprom_dbg_addr   : std_logic_vector(6 downto 0);
   signal eeprom_dbg_data   : std_logic_vector(7 downto 0);
   signal eeprom_dbg_status : std_logic_vector(7 downto 0);
+  signal sitcp_mac         : std_logic_vector(47 downto 0);
+  signal sitcp_ip          : std_logic_vector(31 downto 0);
+  signal sitcp_tcp_port    : std_logic_vector(15 downto 0);
+  signal sitcp_rbcp_port   : std_logic_vector(15 downto 0);
+  signal sitcp_rst_count   : std_logic_vector(7 downto 0);
+  signal eeprom_wr_req     : std_logic;
+  signal eeprom_wr_addr    : std_logic_vector(6 downto 0);
+  signal eeprom_wr_data    : std_logic_vector(7 downto 0);
+  signal eeprom_reload_req : std_logic;
 
   component rbcp_transfer_to_sitcp is
     port(
@@ -925,7 +952,16 @@ begin
       rbcp_rd   => rbcp_rd_int_info,
       eeprom_dbg_addr   => eeprom_dbg_addr,
       eeprom_dbg_data   => eeprom_dbg_data,
-      eeprom_dbg_status => eeprom_dbg_status);
+      eeprom_dbg_status => eeprom_dbg_status,
+      sitcp_mac         => sitcp_mac,
+      sitcp_ip          => sitcp_ip,
+      sitcp_tcp_port    => sitcp_tcp_port,
+      sitcp_rbcp_port   => sitcp_rbcp_port,
+      sitcp_rst_count   => sitcp_rst_count,
+      eeprom_wr_req     => eeprom_wr_req,
+      eeprom_wr_addr    => eeprom_wr_addr,
+      eeprom_wr_data    => eeprom_wr_data,
+      eeprom_reload_req => eeprom_reload_req);
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
@@ -1525,9 +1561,21 @@ begin
       eeprom_dbg_addr   => eeprom_dbg_addr,
       eeprom_dbg_data   => eeprom_dbg_data,
       eeprom_dbg_status => eeprom_dbg_status,
+      sitcp_mac         => sitcp_mac,
+      sitcp_ip          => sitcp_ip,
+      sitcp_tcp_port    => sitcp_tcp_port,
+      sitcp_rbcp_port   => sitcp_rbcp_port,
+      sitcp_rst_count   => sitcp_rst_count,
+      eeprom_wr_req     => eeprom_wr_req,
+      eeprom_wr_addr    => eeprom_wr_addr,
+      eeprom_wr_data    => eeprom_wr_data,
+      eeprom_reload_req => eeprom_reload_req,
       iic_main_sda   => IIC_MAIN_SDA,
       iic_main_scl   => IIC_MAIN_SCL,
-      force_defaultn => '1');
+      -- Low forces SiTCP's built-in defaults.  The key has a pull-up, so an
+      -- unpressed key means "use the EEPROM"; the VIO override inside the
+      -- core can flip this at run time without a rebuild.
+      force_defaultn => user_key0_n);
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then

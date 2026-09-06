@@ -38,6 +38,17 @@ entity sitcp is
     eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
     eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
     eeprom_dbg_status : out   std_logic_vector(7 downto 0);
+    -- Network parameters as loaded by SiTCP (debug observation)
+    sitcp_mac         : out   std_logic_vector(47 downto 0);
+    sitcp_ip          : out   std_logic_vector(31 downto 0);
+    sitcp_tcp_port    : out   std_logic_vector(15 downto 0);
+    sitcp_rbcp_port   : out   std_logic_vector(15 downto 0);
+    sitcp_rst_count   : out   std_logic_vector(7 downto 0);
+    -- EEPROM maintenance (bypasses SiTCP's AT93C46 interface)
+    eeprom_wr_req     : in    std_logic;
+    eeprom_wr_addr    : in    std_logic_vector(6 downto 0);
+    eeprom_wr_data    : in    std_logic_vector(7 downto 0);
+    eeprom_reload_req : in    std_logic;
     -- EEPROM
     iic_main_sda   : inout std_logic;
     iic_main_scl   : out   std_logic;
@@ -76,6 +87,15 @@ architecture Behavioral of sitcp is
       eeprom_dbg_addr   : in    std_logic_vector(6 downto 0);
       eeprom_dbg_data   : out   std_logic_vector(7 downto 0);
       eeprom_dbg_status : out   std_logic_vector(7 downto 0);
+      sitcp_mac         : out   std_logic_vector(47 downto 0);
+      sitcp_ip          : out   std_logic_vector(31 downto 0);
+      sitcp_tcp_port    : out   std_logic_vector(15 downto 0);
+      sitcp_rbcp_port   : out   std_logic_vector(15 downto 0);
+      sitcp_rst_count   : out   std_logic_vector(7 downto 0);
+      eeprom_wr_req     : in    std_logic;
+      eeprom_wr_addr    : in    std_logic_vector(6 downto 0);
+      eeprom_wr_data    : in    std_logic_vector(7 downto 0);
+      eeprom_reload_req : in    std_logic;
       iic_main_sda    : inout std_logic;
       iic_main_scl    : out   std_logic);
   end component axku042_sitcp_core;
@@ -112,6 +132,15 @@ begin
       eeprom_dbg_addr   => eeprom_dbg_addr,
       eeprom_dbg_data   => eeprom_dbg_data,
       eeprom_dbg_status => eeprom_dbg_status,
+      sitcp_mac         => sitcp_mac,
+      sitcp_ip          => sitcp_ip,
+      sitcp_tcp_port    => sitcp_tcp_port,
+      sitcp_rbcp_port   => sitcp_rbcp_port,
+      sitcp_rst_count   => sitcp_rst_count,
+      eeprom_wr_req     => eeprom_wr_req,
+      eeprom_wr_addr    => eeprom_wr_addr,
+      eeprom_wr_data    => eeprom_wr_data,
+      eeprom_reload_req => eeprom_reload_req,
       iic_main_sda    => iic_main_sda,
       iic_main_scl    => iic_main_scl);
 

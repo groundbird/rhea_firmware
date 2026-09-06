@@ -137,6 +137,7 @@ set files [list \
  [file normalize "${origin_dir}/src/LC04/LC04_READER.v"] \
  [file normalize "${origin_dir}/src/LC04/LC04_WRITER.v"] \
  [file normalize "${origin_dir}/src/AXKU042/axku042_sitcp_core.v"] \
+ [file normalize "${origin_dir}/src/AXKU042/sitcp_gmii_dbg.v"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.V"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/TIMER.v"] \
  [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/WRAP_SiTCP_GMII_XCKU_32K.V"] \

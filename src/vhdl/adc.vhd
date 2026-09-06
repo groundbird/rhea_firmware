@@ -264,7 +264,7 @@ begin
           elsif rbcp_addr(15 downto 8) = x"01" then -- Port A LSB
             if rbcp_we = '1' then
               rbcp_ack <= '1';
-              delay_array_a_in(addr_num) <= rbcp_wd(7 downto 0);
+              delay_array_a_in(addr_num)(7 downto 0) <= rbcp_wd(7 downto 0);
             elsif rbcp_re = '1' then
               rbcp_ack <= '1';
               rbcp_rd(7 downto 0) <= delay_array_a_out(addr_num)(7 downto 0);

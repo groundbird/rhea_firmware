@@ -53,6 +53,29 @@ module AT93C46_LC04 #(
     output wire       DEBUG_ERROR_OUT,
     output wire       DEBUG_LC04_RESET_OUT,
 
+    // ------------------------------------------------------------------
+    // Maintenance interface (independent of SiTCP's AT93C46 path)
+    //
+    // SiTCP only drives the AT93C46 interface once it has accepted the
+    // EEPROM contents, so a board whose parameter block is wrong cannot be
+    // repaired through SiTCP itself.  These ports write the 24LC04 and
+    // re-read it directly, and stay usable while SiTCP is held in reset or
+    // running in force-default mode.
+    //
+    //   WR_REQ     : rising edge queues one byte into LC04_WRITER
+    //                (ignored while the reader is busy)
+    //   RELOAD_REQ : rising edge restarts the reader, which re-fills the
+    //                shadow RAM and cycles SiTCP_RESET_OUT so SiTCP reloads
+    //                its parameters without a power cycle
+    // ------------------------------------------------------------------
+    input  wire       WR_REQ_IN,
+    input  wire [6:0] WR_ADDR_IN,
+    input  wire [7:0] WR_DATA_IN,
+    input  wire       RELOAD_REQ_IN,
+    output wire       WR_DONE_OUT,
+    output wire       WR_ERROR_OUT,
+    output wire       WR_BUSY_OUT,
+
     input  wire  SYSCLK_IN
 );
 
@@ -86,6 +109,46 @@ module AT93C46_LC04 #(
             end
         end
     end
+
+    // ------------------------------------------------------------------
+    // Maintenance requests: edge-detect into single-cycle pulses, and
+    // stretch the reload pulse so the reader FSM restarts reliably.
+    // ------------------------------------------------------------------
+    localparam integer RELOAD_HOLD = 16;
+
+    reg       wr_req_d      = 1'b0;
+    reg       reload_req_d  = 1'b0;
+    reg [4:0] reload_cnt    = 5'd0;
+    reg       reader_reload = 1'b0;
+
+    wire rd_done;
+    wire wr_req_pulse    = WR_REQ_IN     & ~wr_req_d     & rd_done;
+    wire reload_req_edge = RELOAD_REQ_IN & ~reload_req_d;
+
+    always @(posedge SYSCLK_IN or posedge lc04_reset) begin
+        if (lc04_reset) begin
+            wr_req_d      <= 1'b0;
+            reload_req_d  <= 1'b0;
+            reload_cnt    <= 5'd0;
+            reader_reload <= 1'b0;
+        end else begin
+            wr_req_d     <= WR_REQ_IN;
+            reload_req_d <= RELOAD_REQ_IN;
+
+            if (reload_req_edge) begin
+                reload_cnt    <= RELOAD_HOLD[4:0];
+                reader_reload <= 1'b1;
+            end else if (reload_cnt != 5'd0) begin
+                reload_cnt <= reload_cnt - 5'd1;
+            end else begin
+                reader_reload <= 1'b0;
+            end
+        end
+    end
+
+    // The reader is additionally reset by a reload request; the writer is not,
+    // so queued bytes survive a reload and are not written twice.
+    wire reader_reset = lc04_reset | reader_reload;
 
     // ------------------------------------------------------------------
     // I2C bus: combine drive signals from Reader and Writer (open-drain OR)
@@ -135,12 +198,13 @@ module AT93C46_LC04 #(
     wire       rd_we;
     wire [8:0] rd_addr;   // 9-bit from LC04_READER; [6:0] used for shadow RAM
     wire [7:0] rd_din;
-    wire       rd_done;
     wire       rd_error;
 
-    assign MEM_WEB  = rd_we;
-    assign MEM_ADDRB = rd_addr[6:0];
-    assign MEM_DINB  = rd_din;
+    // Port B is shared: the reader owns it while filling, and the maintenance
+    // interface uses it afterwards so the shadow RAM matches what was written.
+    assign MEM_WEB   = rd_we | wr_req_pulse;
+    assign MEM_ADDRB = rd_we ? rd_addr[6:0] : WR_ADDR_IN;
+    assign MEM_DINB  = rd_we ? rd_din       : WR_DATA_IN;
 
     LC04_READER #(
         .CLK_DIVIDER (CLK_DIV),
@@ -148,7 +212,7 @@ module AT93C46_LC04 #(
         .START_ADDR  (0      )
     ) u_reader (
         .SYSCLK_IN      (SYSCLK_IN      ),
-        .RESET_IN       (lc04_reset     ),
+        .RESET_IN       (reader_reset   ),
         .SCL_DRIVE_LOW  (scl_r_low      ),
         .SDA_DRIVE_LOW  (sda_r_low      ),
         .SDA_IN         (sda_in         ),
@@ -163,20 +227,27 @@ module AT93C46_LC04 #(
     // ------------------------------------------------------------------
     // LC04_WRITER: writes shadow RAM entries to 24LC04 when SiTCP writes
     // ------------------------------------------------------------------
+    // Entries come either from SiTCP's AT93C46 WRITE command or from the
+    // maintenance port; SiTCP has priority if both land on the same cycle.
+    wire       wr_push = MEM_WEA | wr_req_pulse;
+    wire [8:0] wr_addr = MEM_WEA ? {2'b00, MEM_ADDRA[6:0]} : {2'b00, WR_ADDR_IN};
+    wire [7:0] wr_data = MEM_WEA ? MEM_DINA               : WR_DATA_IN;
+
     LC04_WRITER #(
         .CLK_DIVIDER  (CLK_DIV),
         .ACK_POLL_MAX (500    )
     ) u_writer (
         .SYSCLK_IN      (SYSCLK_IN              ),
         .RESET_IN       (lc04_reset             ),
-        .ROM_WE_IN      (MEM_WEA                ),
-        .ROM_ADDR_IN    ({2'b00, MEM_ADDRA[6:0]}),  // block 0, addresses 0-127
-        .ROM_DATA_IN    (MEM_DINA               ),
+        .ROM_WE_IN      (wr_push                ),
+        .ROM_ADDR_IN    (wr_addr                ),  // block 0, addresses 0-127
+        .ROM_DATA_IN    (wr_data                ),
         .SCL_DRIVE_LOW  (scl_w_low              ),
         .SDA_DRIVE_LOW  (sda_w_low              ),
         .SDA_IN         (sda_in                 ),
-        .DONE_OUT       (                       ),
-        .ERROR_OUT      (                       )
+        .DONE_OUT       (WR_DONE_OUT            ),
+        .ERROR_OUT      (WR_ERROR_OUT           ),
+        .BUSY_OUT       (WR_BUSY_OUT            )
     );
 
     // ------------------------------------------------------------------
@@ -199,7 +270,6 @@ module AT93C46_LC04 #(
                                                  : ADDRESS[6:0];
     assign MEM_DINA[7:0]  = IN_BUFFER[7:0];
     assign AT93C46_DO_OUT = OUT_BUFFER[7];
-    wire mem_wea_pulse = AT93C46_SK_RISE & (BIT_COUNT == 6'd17) & (OPCODE == 3'b101);
 
     reg [7:0] MEM_DOUTA_REG;
 
@@ -211,6 +281,7 @@ module AT93C46_LC04 #(
     integer debug_idx;
     assign AT93C46_SK_RISE = ~AT93C46_SK_P1 &  AT93C46_SK_P0;
     assign AT93C46_SK_FALL =  AT93C46_SK_P1 & ~AT93C46_SK_P0;
+    wire mem_wea_pulse = AT93C46_SK_RISE & (BIT_COUNT == 6'd17) & (OPCODE == 3'b101);
     assign DEBUG_DATA_OUT       = debug_shadow_ram[DEBUG_ADDR_IN];
     assign DEBUG_DATA2_OUT      = debug_shadow_ram[DEBUG_ADDR2_IN];
     assign DEBUG_DONE_OUT       = rd_done;
@@ -257,6 +328,9 @@ module AT93C46_LC04 #(
             end
             if (mem_wea_pulse) begin
                 debug_shadow_ram[MEM_ADDRA] <= MEM_DINA;
+            end
+            if (wr_req_pulse) begin
+                debug_shadow_ram[WR_ADDR_IN] <= WR_DATA_IN;
             end
 
             OUT_BUFFER <= ~AT93C46_SK_FALL  ? OUT_BUFFER

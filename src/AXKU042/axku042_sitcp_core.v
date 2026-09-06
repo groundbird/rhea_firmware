@@ -4,6 +4,16 @@
 // - RGMII PHY interface based on the validated AXKU042 test design
 // - 24LC04-backed EEPROM bridge through AT93C46_LC04
 // - Exposes the original TCP/RBCP streaming interface to rhea.vhd
+//
+// Debug / maintenance additions (SiTCP EEPROM bring-up):
+// - sitcp_gmii_dbg replaces WRAP_SiTCP_GMII_XCKU_32K so the network
+//   parameters SiTCP actually loaded can be observed.  That separates
+//   "the bridge returned the wrong bytes" from "SiTCP rejected the EEPROM".
+// - sitcp_rst_count counts how often SiTCP re-enters reset on its own, which
+//   is the signature of an EEPROM image SiTCP refuses to accept.
+// - force_defaultn can be overridden at run time, so the EEPROM/default modes
+//   can be compared without rebuilding the bitstream.
+// - The 24LC04 can be written and re-read without SiTCP's involvement.
 
 module axku042_sitcp_core (
     input  wire        clk_200,
@@ -34,16 +44,31 @@ module axku042_sitcp_core (
     input  wire [6:0]  eeprom_dbg_addr,
     output wire [7:0]  eeprom_dbg_data,
     output wire [7:0]  eeprom_dbg_status,
+    // Network parameters as loaded by SiTCP
+    output wire [47:0] sitcp_mac,
+    output wire [31:0] sitcp_ip,
+    output wire [15:0] sitcp_tcp_port,
+    output wire [15:0] sitcp_rbcp_port,
+    output wire [7:0]  sitcp_rst_count,
+    // EEPROM maintenance (driven from RBCP; see info.vhdl)
+    input  wire        eeprom_wr_req,
+    input  wire [6:0]  eeprom_wr_addr,
+    input  wire [7:0]  eeprom_wr_data,
+    input  wire        eeprom_reload_req,
     inout  wire        iic_main_sda,
     output wire        iic_main_scl
 );
 
     // JTAG-side debug helpers:
     // - VIO drives a second shadow-RAM address so we can inspect EEPROM contents
-    //   even when SiTCP/RBCP never comes up.
+    //   even when SiTCP/RBCP never comes up, and provides the same maintenance
+    //   controls as the RBCP path.
     // - ILA captures EEPROM/SiTCP boot activity around the same logic.
     wire [6:0] eeprom_dbg_addr_vio;
     wire [7:0] eeprom_dbg_data_vio;
+    wire [7:0] vio_ctrl;
+    wire [6:0] vio_wr_addr;
+    wire [7:0] vio_wr_data;
 
     localparam [4:0] PHY_ADDR_PARAM = 5'd3;
 
@@ -240,6 +265,10 @@ module axku042_sitcp_core (
     wire eeprom_dbg_done;
     wire eeprom_dbg_error;
     wire eeprom_dbg_lc04_reset;
+    wire eeprom_wr_done;
+    wire eeprom_wr_error;
+    wire eeprom_wr_busy;
+    wire sitcp_rst_int;
 
     IOBUF u_iobuf_sda (
         .I (1'b0),
@@ -248,16 +277,84 @@ module axku042_sitcp_core (
         .IO(iic_main_sda)
     );
 
-    wire sitcp_core_rst = btn_rst | ~mmcm_locked | ~phy_reset_nr | sitcp_eeprom_rst;
+    // ------------------------------------------------------------------
+    // Run-time controls
+    //   vio_ctrl[0] : override force_defaultn with vio_ctrl[1]
+    //   vio_ctrl[1] : force_defaultn value used while the override is on
+    //                 (0 = force SiTCP defaults, 1 = use the EEPROM)
+    //   vio_ctrl[2] : soft reset for SiTCP and the EEPROM bridge
+    //   vio_ctrl[3] : queue one EEPROM byte (rising edge)
+    //   vio_ctrl[4] : re-read the EEPROM (rising edge)
+    // ------------------------------------------------------------------
+    wire force_defaultn_eff = vio_ctrl[0] ? vio_ctrl[1] : force_defaultn;
+    wire soft_rst           = vio_ctrl[2];
+
+    reg vio_wr_req_d     = 1'b0;
+    reg vio_reload_req_d = 1'b0;
+    reg rbcp_wr_req_d    = 1'b0;
+    reg rbcp_reload_d    = 1'b0;
+
+    always @(posedge clk_200) begin
+        vio_wr_req_d     <= vio_ctrl[3];
+        vio_reload_req_d <= vio_ctrl[4];
+        rbcp_wr_req_d    <= eeprom_wr_req;
+        rbcp_reload_d    <= eeprom_reload_req;
+    end
+
+    // One-cycle pulses, so a level left asserted by one source cannot mask the
+    // other.  AT93C46_LC04 edge-detects again on its side.
+    wire vio_wr_edge     = vio_ctrl[3]       & ~vio_wr_req_d;
+    wire rbcp_wr_edge    = eeprom_wr_req     & ~rbcp_wr_req_d;
+    wire vio_reload_edge = vio_ctrl[4]       & ~vio_reload_req_d;
+    wire rbcp_reload_edge= eeprom_reload_req & ~rbcp_reload_d;
+
+    wire       eeprom_wr_pulse     = vio_wr_edge | rbcp_wr_edge;
+    wire       eeprom_reload_pulse = vio_reload_edge | rbcp_reload_edge;
+    wire [6:0] eeprom_wr_addr_sel  = vio_wr_edge ? vio_wr_addr : eeprom_wr_addr;
+    wire [7:0] eeprom_wr_data_sel  = vio_wr_edge ? vio_wr_data : eeprom_wr_data;
+
+    wire sitcp_core_rst = btn_rst | soft_rst | ~mmcm_locked | ~phy_reset_nr | sitcp_eeprom_rst;
     assign sitcp_rst = sitcp_core_rst;
-    assign status = {12'd0, tcp_open_ack, tcp_tx_full, rbcp_act, mmcm_locked};
-    assign eeprom_dbg_status = {4'd0, eeprom_dbg_lc04_reset, sitcp_eeprom_rst, eeprom_dbg_error, eeprom_dbg_done};
+    assign status = {8'd0, force_defaultn_eff, eeprom_dbg_error, eeprom_dbg_done, sitcp_rst_int,
+                     tcp_open_ack, tcp_tx_full, rbcp_act, mmcm_locked};
+    assign eeprom_dbg_status = {force_defaultn_eff, eeprom_wr_busy, eeprom_wr_error, eeprom_wr_done,
+                                eeprom_dbg_lc04_reset, sitcp_eeprom_rst, eeprom_dbg_error, eeprom_dbg_done};
+
+    // ------------------------------------------------------------------
+    // SiTCP self-reset counter.
+    // SiTCP asserts its own SiTCP_RST when it rejects the loaded parameters.
+    // A value that keeps climbing while the external reset is released is the
+    // reset loop caused by an invalid EEPROM image.
+    // ------------------------------------------------------------------
+    reg [7:0] rst_count = 8'd0;
+    reg       sitcp_rst_int_d = 1'b1;
+
+    always @(posedge clk_200) begin
+        if (sitcp_core_rst) begin
+            rst_count       <= 8'd0;
+            sitcp_rst_int_d <= 1'b1;
+        end else begin
+            sitcp_rst_int_d <= sitcp_rst_int;
+            if (sitcp_rst_int & ~sitcp_rst_int_d & (rst_count != 8'hFF))
+                rst_count <= rst_count + 8'd1;
+        end
+    end
+
+    assign sitcp_rst_count = rst_count;
 
     sitcp_eeprom_vio u_sitcp_eeprom_vio (
         .clk       (clk_200),
         .probe_in0 (eeprom_dbg_data_vio),
         .probe_in1 (eeprom_dbg_status),
-        .probe_out0(eeprom_dbg_addr_vio)
+        .probe_in2 (sitcp_mac),
+        .probe_in3 (sitcp_ip),
+        .probe_in4 (sitcp_tcp_port),
+        .probe_in5 (sitcp_rbcp_port),
+        .probe_in6 (sitcp_rst_count),
+        .probe_out0(eeprom_dbg_addr_vio),
+        .probe_out1(vio_ctrl),
+        .probe_out2(vio_wr_addr),
+        .probe_out3(vio_wr_data)
     );
 
     sitcp_eeprom_ila u_sitcp_eeprom_ila (
@@ -269,62 +366,67 @@ module axku042_sitcp_core (
         .probe4({7'd0, eeprom_sk}),
         .probe5({7'd0, eeprom_di}),
         .probe6({7'd0, eeprom_do}),
-        .probe7({6'd0, force_defaultn, sitcp_eeprom_rst})
+        .probe7({3'd0, sitcp_rst_int, eeprom_reload_pulse, eeprom_wr_pulse,
+                 force_defaultn_eff, sitcp_eeprom_rst})
     );
 
-    WRAP_SiTCP_GMII_XCKU_32K #(
+    sitcp_gmii_dbg #(
         .TIM_PERIOD(8'd200)
     ) u_sitcp (
-        .CLK            (clk_200),
-        .RST            (sitcp_core_rst),
-        .FORCE_DEFAULTn (force_defaultn),
-        .EXT_IP_ADDR    (32'd0),
-        .EXT_TCP_PORT   (16'd0),
-        .EXT_RBCP_PORT  (16'd0),
-        .PHY_ADDR       (PHY_ADDR_PARAM),
-        .EEPROM_CS      (eeprom_cs),
-        .EEPROM_SK      (eeprom_sk),
-        .EEPROM_DI      (eeprom_di),
-        .EEPROM_DO      (eeprom_do),
-        .USR_REG_X3C    (),
-        .USR_REG_X3D    (),
-        .USR_REG_X3E    (),
-        .USR_REG_X3F    (),
-        .GMII_RSTn      (),
-        .GMII_1000M     (1'b1),
-        .GMII_TX_CLK    (clk125),
-        .GMII_TX_EN     (gmii_tx_en),
-        .GMII_TXD       (gmii_txd),
-        .GMII_TX_ER     (gmii_tx_er),
-        .GMII_RX_CLK    (rxc),
-        .GMII_RX_DV     (gmii_rx_dv),
-        .GMII_RXD       (gmii_rxd),
-        .GMII_RX_ER     (gmii_rx_er),
-        .GMII_CRS       (1'b0),
-        .GMII_COL       (1'b0),
-        .GMII_MDC       (phy_mdc),
-        .GMII_MDIO_IN   (mdio_in),
-        .GMII_MDIO_OUT  (mdio_out),
-        .GMII_MDIO_OE   (mdio_oe),
-        .SiTCP_RST      (),
-        .TCP_OPEN_REQ   (1'b0),
-        .TCP_OPEN_ACK   (tcp_open_ack),
-        .TCP_ERROR      (),
-        .TCP_CLOSE_REQ  (tcp_close_req),
-        .TCP_CLOSE_ACK  (tcp_close_req),
-        .TCP_RX_WC      (16'd0),
-        .TCP_RX_WR      (),
-        .TCP_RX_DATA    (),
-        .TCP_TX_FULL    (tcp_tx_full),
-        .TCP_TX_WR      (tcp_tx_wr),
-        .TCP_TX_DATA    (tcp_txd),
-        .RBCP_ACT       (rbcp_act),
-        .RBCP_ADDR      (rbcp_addr),
-        .RBCP_WD        (rbcp_wd),
-        .RBCP_WE        (rbcp_we),
-        .RBCP_RE        (rbcp_re),
-        .RBCP_ACK       (rbcp_ack),
-        .RBCP_RD        (rbcp_rd)
+        .CLK                   (clk_200),
+        .RST                   (sitcp_core_rst),
+        .FORCE_DEFAULTn        (force_defaultn_eff),
+        .EXT_IP_ADDR           (32'd0),
+        .EXT_TCP_PORT          (16'd0),
+        .EXT_RBCP_PORT         (16'd0),
+        .PHY_ADDR              (PHY_ADDR_PARAM),
+        .MY_MAC_ADDR           (sitcp_mac),
+        .IP_ADDR_DEFAULT       (sitcp_ip),
+        .TCP_MAIN_PORT_DEFAULT (sitcp_tcp_port),
+        .RBCP_PORT_DEFAULT     (sitcp_rbcp_port),
+        .EEPROM_CS             (eeprom_cs),
+        .EEPROM_SK             (eeprom_sk),
+        .EEPROM_DI             (eeprom_di),
+        .EEPROM_DO             (eeprom_do),
+        .USR_REG_X3C           (),
+        .USR_REG_X3D           (),
+        .USR_REG_X3E           (),
+        .USR_REG_X3F           (),
+        .GMII_RSTn             (),
+        .GMII_1000M            (1'b1),
+        .GMII_TX_CLK           (clk125),
+        .GMII_TX_EN            (gmii_tx_en),
+        .GMII_TXD              (gmii_txd),
+        .GMII_TX_ER            (gmii_tx_er),
+        .GMII_RX_CLK           (rxc),
+        .GMII_RX_DV            (gmii_rx_dv),
+        .GMII_RXD              (gmii_rxd),
+        .GMII_RX_ER            (gmii_rx_er),
+        .GMII_CRS              (1'b0),
+        .GMII_COL              (1'b0),
+        .GMII_MDC              (phy_mdc),
+        .GMII_MDIO_IN          (mdio_in),
+        .GMII_MDIO_OUT         (mdio_out),
+        .GMII_MDIO_OE          (mdio_oe),
+        .SiTCP_RST             (sitcp_rst_int),
+        .TCP_OPEN_REQ          (1'b0),
+        .TCP_OPEN_ACK          (tcp_open_ack),
+        .TCP_ERROR             (),
+        .TCP_CLOSE_REQ         (tcp_close_req),
+        .TCP_CLOSE_ACK         (tcp_close_req),
+        .TCP_RX_WC             (16'd0),
+        .TCP_RX_WR             (),
+        .TCP_RX_DATA           (),
+        .TCP_TX_FULL           (tcp_tx_full),
+        .TCP_TX_WR             (tcp_tx_wr),
+        .TCP_TX_DATA           (tcp_txd),
+        .RBCP_ACT              (rbcp_act),
+        .RBCP_ADDR             (rbcp_addr),
+        .RBCP_WD               (rbcp_wd),
+        .RBCP_WE               (rbcp_we),
+        .RBCP_RE               (rbcp_re),
+        .RBCP_ACK              (rbcp_ack),
+        .RBCP_RD               (rbcp_rd)
     );
 
     AT93C46_LC04 #(
@@ -347,6 +449,13 @@ module axku042_sitcp_core (
         .DEBUG_DONE_OUT  (eeprom_dbg_done),
         .DEBUG_ERROR_OUT (eeprom_dbg_error),
         .DEBUG_LC04_RESET_OUT(eeprom_dbg_lc04_reset),
+        .WR_REQ_IN       (eeprom_wr_pulse),
+        .WR_ADDR_IN      (eeprom_wr_addr_sel),
+        .WR_DATA_IN      (eeprom_wr_data_sel),
+        .RELOAD_REQ_IN   (eeprom_reload_pulse),
+        .WR_DONE_OUT     (eeprom_wr_done),
+        .WR_ERROR_OUT    (eeprom_wr_error),
+        .WR_BUSY_OUT     (eeprom_wr_busy),
         .SYSCLK_IN       (clk_200)
     );
 

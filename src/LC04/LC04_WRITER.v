@@ -36,7 +36,8 @@ module LC04_WRITER #(
     input  wire        SDA_IN,
 
     output reg         DONE_OUT,      // high when all buffered entries written
-    output reg         ERROR_OUT      // high if any entry had an I2C error
+    output reg         ERROR_OUT,     // high if any entry had an I2C error
+    output wire        BUSY_OUT       // high while an entry is queued or in flight
 );
 
     // ----------------------------------------------------------------
@@ -199,6 +200,8 @@ module LC04_WRITER #(
     reg [7:0]  l_data   = 8'h00;
     reg        started  = 1'b0;   // at least one entry has been processed
     reg        err_latch = 1'b0;
+
+    assign BUSY_OUT = ~buf_empty | (hl != HL_IDLE);
 
     always @(posedge SYSCLK_IN) begin
         if (RESET_IN) begin
