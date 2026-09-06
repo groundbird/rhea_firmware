@@ -49,6 +49,7 @@ MAC側ではFCS、プリアンブル、最小フレーム長、IFG、フレー�
 
 単一接続専用RTLを採用した。ARP/ICMP/TCPのプロトタイプはKU040で配置配線を通り、30秒の連番検査付き実機試験で320.640 Mbpsを得た。
 この結果から、最初の運用版も同じ境界で再送、RBCP、RHEA送信FIFOを段階的に追加する。
+固定1秒RTOと最古未ACKセグメントの再送は追加済みで、ACK欠落のRTL故障注入と実機速度の回帰試験を通した。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。

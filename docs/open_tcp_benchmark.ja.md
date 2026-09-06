@@ -12,6 +12,7 @@
 - IPv4/TCP checksum検査・生成、固定MSS 1460 byte
 - 累積ACKと相手の16 bit receive window、最大10 MSSの送信中データ
 - ACK付きカウンタストリーム送信、RST処理、基本的なFIN処理
+- 1秒RTO、最古の未ACKシーケンスからのSYN-ACK・データ・FIN再送
 
 送信データはSiTCP基準測定と同じ32 bit little-endian連番`0, 1, 2, ...`である。
 各1460 byteセグメントは、TCP checksum計算とフレームバッファ生成の2パスで処理する。
@@ -43,6 +44,10 @@ AXKU042ではDigilent JTAGから揮発性bitstreamを書込み、ping 5/5応答�
 独自TCPの1秒区間はおおむね320.5～320.7 Mbpsだった。PC側checkerはPython標準ライブラリを使用し、
 TCPの任意の`recv()`分割をまたいで欠損、重複、順序違反を検査した。
 
+この後に固定1秒RTOと再送を追加した構成では、ACKを意図的に省いたxsim試験で`snd_una`からの
+1460 byte再送を全wire byte照合した。実機10秒試験は40.081 MB/s（320.649 Mbps）で連番検査PASS、
+post-route WNS/WHSは+1.701/+0.021 ns、資源量は3,011 LUT、1,181 FF、BRAM 0だった。
+
 ## 再現方法
 
 管理Docker内でプロジェクトを作成・ビルドする。
@@ -69,8 +74,8 @@ python3 tools/sitcp_benchmark.py --no-rbcp --seconds 30 --warmup 2
 
 ## 次に必要な機能
 
-このbitstreamは性能検証用プロトタイプであり、現時点ではパケット損失時の再送タイマー、RTT/RTO更新、
-輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較を実装していない。
+このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送は実装したが、RTTによるRTO更新、
+指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
 送信データも再生成可能な連番に限定しており、RHEAデータをACKまで保持する再送RAMは未接続である。
 
 次段では、ACK済み・新規送信済み・未送信位置を分けた送信リング、RTOと再送、重複ACK、

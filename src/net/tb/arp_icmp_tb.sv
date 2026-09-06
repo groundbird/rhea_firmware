@@ -31,7 +31,7 @@ module arp_icmp_tb;
         .tx_frame_rd_addr(tx_addr), .tx_frame_rd_data(tx_data),
         .arp_replies(arp_replies), .icmp_replies(icmp_replies),
         .unsupported_frames(unsupported_frames), .response_drops(response_drops),
-        .tcp_connections(), .tcp_segments()
+        .tcp_connections(), .tcp_segments(), .tcp_retransmissions()
     );
     gmii_tx_frame u_tx (
         .clk(clk), .rst(rst), .request_toggle(tx_request), .done_toggle(tx_done),

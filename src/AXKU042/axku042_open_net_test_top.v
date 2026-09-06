@@ -187,7 +187,7 @@ module axku042_open_net_test_top (
         .tx_frame_len(tx_frame_len), .tx_frame_rd_addr(tx_frame_rd_addr),
         .tx_frame_rd_data(tx_frame_rd_data), .arp_replies(), .icmp_replies(),
         .unsupported_frames(), .response_drops(), .tcp_connections(),
-        .tcp_segments()
+        .tcp_segments(), .tcp_retransmissions()
     );
 
     gmii_tx_frame u_tx_frame (

@@ -6,7 +6,9 @@ module arp_icmp_server #(
     parameter [47:0] LOCAL_MAC = 48'h02_52_48_45_41_01,
     parameter [31:0] LOCAL_IP  = {8'd192, 8'd168, 8'd10, 8'd16},
     parameter MAX_FRAME_BYTES = 1536,
-    parameter ADDR_WIDTH = 11
+    parameter ADDR_WIDTH = 11,
+    parameter [31:0] TCP_CWND_BYTES = 32'd14600,
+    parameter integer RTO_CYCLES = 125_000_000
 ) (
     input  wire                  rx_clk,
     input  wire                  rst,
@@ -25,7 +27,8 @@ module arp_icmp_server #(
     output reg  [31:0]           unsupported_frames,
     output reg  [31:0]           response_drops,
     output reg  [31:0]           tcp_connections,
-    output reg  [31:0]           tcp_segments
+    output reg  [31:0]           tcp_segments,
+    output reg  [31:0]           tcp_retransmissions
 );
     localparam ST_IDLE = 4'd0, ST_PARSE = 4'd1, ST_CHECK = 4'd2,
                ST_BUILD_ARP = 4'd3, ST_BUILD_ICMP = 4'd4,
@@ -38,7 +41,6 @@ module arp_icmp_server #(
     localparam [15:0] TCP_PORT = 16'd24;
     localparam [31:0] TCP_ISN = 32'h5248_4541;
     localparam [15:0] TCP_PAYLOAD_BYTES = 16'd1460;
-    localparam [31:0] TCP_CWND_BYTES = 32'd14600;
     reg [3:0] state;
     reg [1:0] tcp_state;
     reg [ADDR_WIDTH-1:0] index;
@@ -83,6 +85,8 @@ module arp_icmp_server #(
     reg [15:0] tcp_validate_sum;
     reg tcp_checksum_ok;
     reg [15:0] checksum_word;
+    reg [31:0] rto_counter;
+    reg rto_expired;
 
     function [15:0] csum_add16;
         input [15:0] sum;
@@ -346,6 +350,7 @@ module arp_icmp_server #(
             response_drops <= 0;
             tcp_connections <= 0;
             tcp_segments <= 0;
+            tcp_retransmissions <= 0;
             tcp_state <= TCP_LISTEN;
             src_mac <= 0; src_ip <= 0; eth_type <= 0;
             arp_htype <= 0; arp_ptype <= 0; arp_oper <= 0;
@@ -365,10 +370,22 @@ module arp_icmp_server #(
             tcp_build_ip_checksum <= 0; tcp_build_ip_id <= 0;
             tcp_calc_sum <= 0; tcp_calc_high <= 0; tcp_build_from_rx <= 0;
             tcp_validate_sum <= 0; tcp_checksum_ok <= 0;
+            rto_counter <= 0; rto_expired <= 0;
         end else begin
             tx_done_meta <= tx_done_toggle;
             tx_done_sync <= tx_done_meta;
             rx_frame_consume <= 0;
+            if (tcp_state == TCP_LISTEN || snd_una == snd_nxt) begin
+                rto_counter <= 0;
+                rto_expired <= 0;
+            end else if (!rto_expired) begin
+                if (rto_counter >= RTO_CYCLES - 1) begin
+                    rto_counter <= 0;
+                    rto_expired <= 1;
+                end else begin
+                    rto_counter <= rto_counter + 1'b1;
+                end
+            end
             case (state)
                 ST_IDLE: begin
                     if (rx_frame_valid) begin
@@ -387,6 +404,24 @@ module arp_icmp_server #(
                         ip_sum <= 0; icmp_sum <= 0; tcp_rx_sum <= 0;
                         ip_high <= 0; icmp_high <= 0; tcp_rx_high <= 0;
                         state <= ST_PARSE;
+                    end else if (rto_expired && tcp_state != TCP_LISTEN &&
+                            !tx_buffer_busy) begin
+                        tcp_build_seq <= tcp_state == TCP_SYN_RCVD ? TCP_ISN :
+                            (tcp_state == TCP_LAST_ACK ? snd_nxt - 1'b1 : snd_una);
+                        tcp_build_ack <= rcv_nxt;
+                        tcp_build_flags <= tcp_state == TCP_SYN_RCVD ? 8'h12 :
+                            (tcp_state == TCP_LAST_ACK ? 8'h11 : 8'h18);
+                        tcp_build_payload_len <= tcp_state == TCP_ESTABLISHED
+                            ? TCP_PAYLOAD_BYTES : 16'd0;
+                        tcp_build_ip_id <= tcp_build_ip_id + 1'b1;
+                        tcp_calc_sum <= 0;
+                        tcp_calc_high <= 0;
+                        index <= 0;
+                        tcp_build_from_rx <= 0;
+                        tcp_retransmissions <= tcp_retransmissions + 1'b1;
+                        rto_counter <= 0;
+                        rto_expired <= 0;
+                        state <= ST_TCP_IP_CHECKSUM;
                     end else if (tcp_state == TCP_ESTABLISHED && !tx_buffer_busy &&
                             tcp_send_limit >= TCP_PAYLOAD_BYTES &&
                             tcp_flight_bytes <= tcp_send_limit - TCP_PAYLOAD_BYTES) begin
@@ -526,24 +561,49 @@ module arp_icmp_server #(
                             tcp_build_from_rx <= 1;
                             index <= 0;
                             tcp_state <= TCP_SYN_RCVD;
+                            rto_counter <= 0;
+                            rto_expired <= 0;
                             state <= ST_TCP_IP_CHECKSUM;
                         end else if (tcp_state != TCP_LISTEN && tcp_peer_match &&
                                 tcp_rx_flags[2]) begin
                             tcp_state <= TCP_LISTEN;
                             snd_una <= 0;
                             snd_nxt <= 0;
+                            rto_counter <= 0;
+                            rto_expired <= 0;
                             state <= ST_WAIT_RX_RELEASE;
+                        end else if (tcp_state == TCP_SYN_RCVD && tcp_peer_match &&
+                                tcp_rx_flags[1] && !tcp_rx_flags[4] &&
+                                tcp_rx_seq + 1'b1 == rcv_nxt && !tx_buffer_busy) begin
+                            tcp_build_seq <= TCP_ISN;
+                            tcp_build_ack <= rcv_nxt;
+                            tcp_build_flags <= 8'h12;
+                            tcp_build_payload_len <= 0;
+                            tcp_build_ip_id <= tcp_build_ip_id + 1'b1;
+                            tcp_calc_sum <= 0;
+                            tcp_calc_high <= 0;
+                            tcp_build_from_rx <= 1;
+                            index <= 0;
+                            rto_counter <= 0;
+                            rto_expired <= 0;
+                            tcp_retransmissions <= tcp_retransmissions + 1'b1;
+                            state <= ST_TCP_IP_CHECKSUM;
                         end else if (tcp_state == TCP_SYN_RCVD && tcp_peer_match &&
                                 tcp_rx_flags[4] && tcp_rx_ack == TCP_ISN + 1'b1) begin
                             snd_una <= tcp_rx_ack;
                             peer_window <= tcp_window;
                             tcp_state <= TCP_ESTABLISHED;
                             tcp_connections <= tcp_connections + 1'b1;
+                            rto_counter <= 0;
+                            rto_expired <= 0;
                             state <= ST_WAIT_RX_RELEASE;
                         end else if (tcp_state == TCP_ESTABLISHED && tcp_peer_match &&
                                 tcp_rx_flags[4]) begin
-                            if (tcp_rx_ack >= snd_una && tcp_rx_ack <= snd_nxt)
+                            if (tcp_rx_ack > snd_una && tcp_rx_ack <= snd_nxt) begin
                                 snd_una <= tcp_rx_ack;
+                                rto_counter <= 0;
+                                rto_expired <= 0;
+                            end
                             peer_window <= tcp_window;
                             if (tcp_rx_flags[0] && !tx_buffer_busy) begin
                                 rcv_nxt <= tcp_rx_seq + tcp_rx_payload_len + 1'b1;
@@ -565,6 +625,8 @@ module arp_icmp_server #(
                         end else if (tcp_state == TCP_LAST_ACK && tcp_peer_match &&
                                 tcp_rx_flags[4] && tcp_rx_ack == snd_nxt) begin
                             tcp_state <= TCP_LISTEN;
+                            rto_counter <= 0;
+                            rto_expired <= 0;
                             state <= ST_WAIT_RX_RELEASE;
                         end else begin
                             unsupported_frames <= unsupported_frames + 1'b1;
