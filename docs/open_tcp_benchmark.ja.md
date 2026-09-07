@@ -16,7 +16,7 @@
 - ACKまで送信データを保持する32 KiBリプレイリング
 - SiTCP相当の1 byte送信入力、`TCP_OPEN_ACK`相当の接続状態、`TCP_TX_FULL`立上がり後8 byteの書込み余裕
 - 200 MHzユーザー入力から125 MHz PHY受信clockへ渡す64 byte非同期FIFO
-- UDP port 4660のRBCP read/write、最大255 byte、200 MHzレジスタバスへのCDC、100 ms ACK timeout
+- UDP port 4660のRBCP read/write、最大255 byte、200 MHzレジスタバスへのCDC、5 ms ACK timeout
 
 送信データはSiTCP基準測定と同じ32 bit little-endian連番`0, 1, 2, ...`である。
 カウンタ生成器は通常のアプリケーション送信源としてリプレイリングへ書き込み、TCPエンジンは
@@ -94,13 +94,25 @@ ADC入力では、ビットごとのIDDRE1 reset FFがVivadoに統合されて�
 8チャンネルdebug buildは通常の64チャンネルpackageを編集せず、`--debug-8ch`で専用packageと
 `rhea-fpga-8ch` projectを生成できる。64チャンネル実装と並行して生成した最終版もtiming violation 0である。
 
+統合版を実機へ書き込んだところ、最初はpingの約10%が欠落した。RBCPから読める受信カウンタを追加して
+調べると、欠落したrequestとRGMII RXのFCS error数が一致した。KSZ9031の既定RXC delay約1.2 nsに加えて、
+FPGA内のRX MMCMでRXCを45度（125 MHzで1.0 ns）遅らせ、DDR sampling位置をdata eye中央付近へ移した。
+また、実装ごとのglobal clock配置変動を避けるため、AXKU042用BUFG位置を固定した。
+
+2026-09-07の8チャンネル再ビルドでは500 pingすべてに応答し、packet loss 0%、FPGAの受信FCS error 0、
+受信drop 0だった。400回のRBCP試験（通常register、DAC内部register、ADC SPI、DAC SPIを各100回）も
+bus error、timeout、retryすべて0だった。実際の`health_check.py diagnosis`は2回とも約1.30秒で完了した。
+約0.8%の内部bus ACK timeoutは再試行で回復し、Ethernet受信FCS errorは増えなかった。SPI以外のDAC内部
+registerでも発生するため、残る問題はRGMIIではなくRHEA内部のRBCP応答経路にある。ACK timeoutを
+100 msから5 msへ短縮し、正常な約0.3 msのSPIアクセスを保ったまま、欠落時の待ち時間を抑えた。
+
 | 項目 | RHEA 8チャンネル | RHEA 64チャンネル | 独自network core（64ch内） |
 |---|---:|---:|---:|
-| LUT | 26,843 | 88,196 | 3,479 |
-| FF | 35,216 | 261,819 | 1,750 |
+| LUT | 27,003 | 88,196 | 3,479 |
+| FF | 35,433 | 261,819 | 1,750 |
 | RAMB36 / RAMB18 | 121 / 48 | 457 / 1 | 8 / 0 |
 | DSP | 102 | 550 | 0 |
-| post-route WNS / WHS | +0.008 / +0.030 ns | +0.036 / +0.030 ns | - |
+| post-route WNS / WHS | +0.226 / +0.030 ns | +0.036 / +0.030 ns | - |
 
 両実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
 RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す送信経路にCritical/Warning判定が残る。
@@ -110,7 +122,11 @@ RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す
 通常ソースのチャンネル定数は64である。64チャンネルbitstreamは
 `rhea-fpga/rhea-fpga.runs/impl_1/rhea.bit`、独立8チャンネルbitstreamは
 `rhea-fpga-8ch/rhea-fpga-8ch.runs/impl_1/rhea.bit`に生成される。どちらも最終RBCP CDC版を含む。
-FPGA上は引き続きstandalone RBCP benchmark版であり、これらのRHEA統合版はまだ書き込んでいない。
+8チャンネル統合版は実機へ書き込み、RGMIIとRBCPの試験まで完了した。
+
+独自network coreのread-only診断windowはRBCP `0xffff_ff00`から32 byteである。各値は
+big-endian 32 bitで、順に受信正常frame、受信FCS error frame、受信drop frame、ARP reply、
+ICMP reply、非対応frame、応答drop、TCP segmentを返す。
 
 ## 再現方法
 
@@ -170,7 +186,8 @@ python3 tools/sitcp_benchmark.py --seconds 30 --warmup 2
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
 200 MHzのSiTCP互換送信境界、RBCP、8/64チャンネルRHEAの配置配線までは完了した。
 
-次段では8チャンネルRHEA版を実機へ書き込み、RHEAのレジスタマップ、データ形式、連続転送を確認する。
-その後64チャンネル版でも同じ試験を行う。RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
+次段では8チャンネルRHEA版の測定データ源を設定し、データ形式と連続TCP転送を確認する。
+その後64チャンネル版でも同じ試験を行う。RHEA内部で約0.8%残るRBCP ACK欠落も追跡する。
+RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
 並行して接続終了の全経路と重複ACKを強化する。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

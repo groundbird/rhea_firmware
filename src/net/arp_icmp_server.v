@@ -31,6 +31,9 @@ module arp_icmp_server #(
     output reg  [31:0]           tcp_connections,
     output reg  [31:0]           tcp_segments,
     output reg  [31:0]           tcp_retransmissions,
+    input  wire [31:0]           rx_good_frames,
+    input  wire [31:0]           rx_bad_frames,
+    input  wire [31:0]           rx_dropped_frames,
     input  wire                  app_tx_wr,
     input  wire [7:0]            app_tx_data,
     output wire                  app_tcp_tx_full,
@@ -195,6 +198,48 @@ module arp_icmp_server #(
                 2'd1: benchmark_payload_byte = word_index[15:8];
                 2'd2: benchmark_payload_byte = word_index[23:16];
                 default: benchmark_payload_byte = {2'b00, word_index[29:24]};
+            endcase
+        end
+    endfunction
+
+    // Read-only diagnostic window at 0xffff_ff00. Values are big-endian so a
+    // normal 4-byte RBCP read returns the corresponding 32-bit counter.
+    function [7:0] diagnostic_byte;
+        input [7:0] offset;
+        begin
+            case (offset)
+                8'h00: diagnostic_byte = rx_good_frames[31:24];
+                8'h01: diagnostic_byte = rx_good_frames[23:16];
+                8'h02: diagnostic_byte = rx_good_frames[15:8];
+                8'h03: diagnostic_byte = rx_good_frames[7:0];
+                8'h04: diagnostic_byte = rx_bad_frames[31:24];
+                8'h05: diagnostic_byte = rx_bad_frames[23:16];
+                8'h06: diagnostic_byte = rx_bad_frames[15:8];
+                8'h07: diagnostic_byte = rx_bad_frames[7:0];
+                8'h08: diagnostic_byte = rx_dropped_frames[31:24];
+                8'h09: diagnostic_byte = rx_dropped_frames[23:16];
+                8'h0a: diagnostic_byte = rx_dropped_frames[15:8];
+                8'h0b: diagnostic_byte = rx_dropped_frames[7:0];
+                8'h0c: diagnostic_byte = arp_replies[31:24];
+                8'h0d: diagnostic_byte = arp_replies[23:16];
+                8'h0e: diagnostic_byte = arp_replies[15:8];
+                8'h0f: diagnostic_byte = arp_replies[7:0];
+                8'h10: diagnostic_byte = icmp_replies[31:24];
+                8'h11: diagnostic_byte = icmp_replies[23:16];
+                8'h12: diagnostic_byte = icmp_replies[15:8];
+                8'h13: diagnostic_byte = icmp_replies[7:0];
+                8'h14: diagnostic_byte = unsupported_frames[31:24];
+                8'h15: diagnostic_byte = unsupported_frames[23:16];
+                8'h16: diagnostic_byte = unsupported_frames[15:8];
+                8'h17: diagnostic_byte = unsupported_frames[7:0];
+                8'h18: diagnostic_byte = response_drops[31:24];
+                8'h19: diagnostic_byte = response_drops[23:16];
+                8'h1a: diagnostic_byte = response_drops[15:8];
+                8'h1b: diagnostic_byte = response_drops[7:0];
+                8'h1c: diagnostic_byte = tcp_segments[31:24];
+                8'h1d: diagnostic_byte = tcp_segments[23:16];
+                8'h1e: diagnostic_byte = tcp_segments[15:8];
+                default: diagnostic_byte = tcp_segments[7:0];
             endcase
         end
     endfunction
@@ -904,6 +949,13 @@ module arp_icmp_server #(
                 ST_RBCP_ACCESS: begin
                     if (rbcp_failed || rbcp_index == rbcp_length) begin
                         state <= ST_RBCP_WAIT_TX;
+                    end else if (rbcp_command == 8'hc0 &&
+                            rbcp_base_addr[31:8] == 24'hff_ffff &&
+                            {1'b0, rbcp_base_addr[7:0]} +
+                                {1'b0, rbcp_index} < 9'h020) begin
+                        rbcp_data[rbcp_index] <= diagnostic_byte(
+                            rbcp_base_addr[7:0] + rbcp_index);
+                        rbcp_index <= rbcp_index + 1'b1;
                     end else if (!rbcp_busy) begin
                         rbcp_req_addr <= rbcp_base_addr + rbcp_index;
                         rbcp_req_wd <= rbcp_command == 8'h80

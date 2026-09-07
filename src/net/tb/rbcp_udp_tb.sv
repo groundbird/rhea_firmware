@@ -13,6 +13,7 @@ module rbcp_udp_tb;
     wire rx_valid, rx_consume;
     wire [10:0] rx_len, rx_addr;
     wire [7:0] rx_data;
+    wire [31:0] rx_good_frames, rx_bad_frames, rx_dropped_frames;
     wire tx_request, tx_done;
     wire [10:0] tx_len, tx_addr;
     wire [7:0] tx_data;
@@ -33,8 +34,8 @@ module rbcp_udp_tb;
         .gmii_rx_dv(gmii_rx_dv), .gmii_rx_er(gmii_rx_er),
         .frame_valid(rx_valid), .frame_len(rx_len),
         .frame_consume(rx_consume), .frame_rd_addr(rx_addr),
-        .frame_rd_data(rx_data), .good_frames(), .bad_frames(),
-        .dropped_frames()
+        .frame_rd_data(rx_data), .good_frames(rx_good_frames),
+        .bad_frames(rx_bad_frames), .dropped_frames(rx_dropped_frames)
     );
 
     arp_icmp_server u_server (
@@ -46,6 +47,8 @@ module rbcp_udp_tb;
         .tx_frame_rd_data(tx_data), .arp_replies(), .icmp_replies(),
         .unsupported_frames(), .response_drops(), .tcp_connections(),
         .tcp_segments(), .tcp_retransmissions(), .app_tx_wr(1'b0),
+        .rx_good_frames(rx_good_frames), .rx_bad_frames(rx_bad_frames),
+        .rx_dropped_frames(rx_dropped_frames),
         .app_tx_data(8'd0), .app_tcp_tx_full(), .app_tcp_open(),
         .app_session_start(), .rbcp_start(rbcp_start),
         .rbcp_req_addr(rbcp_req_addr), .rbcp_req_wd(rbcp_req_wd),

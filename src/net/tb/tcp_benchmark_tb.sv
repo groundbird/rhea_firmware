@@ -70,6 +70,8 @@ module tcp_benchmark_tb;
         .arp_replies(), .icmp_replies(), .unsupported_frames(), .response_drops(),
         .tcp_connections(tcp_connections), .tcp_segments(tcp_segments),
         .tcp_retransmissions(tcp_retransmissions),
+        .rx_good_frames(32'd0), .rx_bad_frames(32'd0),
+        .rx_dropped_frames(32'd0),
         .app_tx_wr(replay_tx_wr), .app_tx_data(replay_tx_data),
         .app_tcp_tx_full(replay_tcp_tx_full),
         .app_tcp_open(protocol_tcp_open),

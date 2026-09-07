@@ -68,6 +68,20 @@ set_property PACKAGE_PIN AA33 [get_ports phy_mdc]
 set_property PACKAGE_PIN AE31 [get_ports phy_mdio]
 set_property PACKAGE_PIN V32  [get_ports phy_rstn]
 
+# RGMII timing is currently implemented with I/O DDR cells and separately
+# routed global clocks. Keep the clock roots deterministic until the interface
+# is converted to fully timed source-synchronous constraints.
+set_property -quiet LOC BUFGCE_X0Y30 [get_cells -quiet -hierarchical -filter \
+    {NAME == u_bufg_sysclk}]
+set_property -quiet LOC BUFGCE_X0Y25 [get_cells -quiet -hierarchical -filter \
+    {NAME =~ *u_axku042_open_net_core/u_bufg_mmcm_fb}]
+set_property -quiet LOC BUFGCE_X0Y27 [get_cells -quiet -hierarchical -filter \
+    {NAME =~ *u_axku042_open_net_core/u_bufg_clk125}]
+set_property -quiet LOC BUFGCE_X0Y29 [get_cells -quiet -hierarchical -filter \
+    {NAME =~ *u_axku042_open_net_core/u_bufg_clk125_90}]
+set_property -quiet LOC BUFGCE_X0Y96 [get_cells -quiet -hierarchical -filter \
+    {NAME =~ *u_axku042_open_net_core/u_bufg_rxc}]
+
 set_clock_groups -asynchronous \
     -group [get_clocks -include_generated_clocks sysclk_200] \
     -group [get_clocks -include_generated_clocks rgmii_rxc]

@@ -33,6 +33,8 @@ module arp_icmp_tb;
         .arp_replies(arp_replies), .icmp_replies(icmp_replies),
         .unsupported_frames(unsupported_frames), .response_drops(response_drops),
         .tcp_connections(), .tcp_segments(), .tcp_retransmissions(),
+        .rx_good_frames(good_frames), .rx_bad_frames(bad_frames),
+        .rx_dropped_frames(dropped_frames),
         .app_tx_wr(1'b0), .app_tx_data(8'd0),
         .app_tcp_tx_full(unused_app_tcp_tx_full),
         .app_tcp_open(unused_app_tcp_open),

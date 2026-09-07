@@ -4,7 +4,10 @@
 // RHEA register bus. Request and response payloads remain stable until the
 // corresponding toggle has crossed two synchronizer stages.
 module rbcp_cdc_bridge #(
-    parameter integer TIMEOUT_CYCLES = 20_000_000
+    // 5 ms at the 200 MHz RHEA register clock. Normal SPI accesses complete
+    // in about 0.3 ms; a missing acknowledge should not stall software for
+    // the previous 100 ms timeout plus another 100 ms quarantine interval.
+    parameter integer TIMEOUT_CYCLES = 1_000_000
 ) (
     input  wire        src_clk,
     input  wire        src_rst,

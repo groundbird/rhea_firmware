@@ -58,6 +58,7 @@ module axku042_open_net_core (
         .CLKOUT0(clk125_raw), .CLKOUT0B(), .CLKOUT1(clk125_90_raw),
         .CLKOUT1B(), .CLKOUT2(), .CLKOUT2B(), .CLKOUT3(), .CLKOUT3B(),
         .CLKOUT4(), .CLKOUT5(), .CLKOUT6(), .LOCKED(mmcm_locked),
+        .CLKFBSTOPPED(), .CLKINSTOPPED(),
         .DADDR(7'd0), .DCLK(1'b0), .DEN(1'b0), .DI(16'd0), .DO(),
         .DRDY(), .DWE(1'b0), .CDDCREQ(1'b0), .CDDCDONE(), .PSCLK(1'b0),
         .PSEN(1'b0), .PSINCDEC(1'b0), .PSDONE(), .PWRDWN(1'b0), .RST(1'b0)
@@ -68,8 +69,9 @@ module axku042_open_net_core (
     BUFG u_bufg_clk125_90 (.I(clk125_90_raw),  .O(clk125_90));
 
     wire rxc_ibuf, rxc;
+    wire rx_mmcm_fb_out, rx_mmcm_fb_in, rxc_shift_raw;
+    wire rx_mmcm_locked;
     IBUF u_ibuf_rxc (.I(phy_rxc), .O(rxc_ibuf));
-    BUFG u_bufg_rxc (.I(rxc_ibuf), .O(rxc));
 
     reg rst_p0 = 1'b1, rst_p1 = 1'b1;
     always @(posedge clk_200 or posedge rst) begin
@@ -97,11 +99,38 @@ module axku042_open_net_core (
     end
     assign phy_rstn = phy_reset_nr;
 
+    // The KSZ9031 delays RXC by about 1.2 ns by default. Add another 1.0 ns
+    // (45 degrees at 125 MHz) so the UltraScale input DDR cells sample near
+    // the middle of the RGMII data eye instead of relying on marginal board
+    // and global-clock insertion delays.
+    wire rx_mmcm_reset = rst_p1 | ~phy_reset_nr;
+    MMCME3_ADV #(
+        .BANDWIDTH("OPTIMIZED"), .COMPENSATION("ZHOLD"),
+        .STARTUP_WAIT("FALSE"), .CLKIN1_PERIOD(8.000),
+        .DIVCLK_DIVIDE(1), .CLKFBOUT_MULT_F(8.0), .CLKFBOUT_PHASE(0.0),
+        .CLKOUT0_DIVIDE_F(8.000), .CLKOUT0_PHASE(45.000),
+        .CLKOUT0_DUTY_CYCLE(0.5)
+    ) u_rx_mmcm (
+        .CLKIN1(rxc_ibuf), .CLKIN2(1'b0), .CLKINSEL(1'b1),
+        .CLKFBIN(rx_mmcm_fb_in), .CLKFBOUT(rx_mmcm_fb_out), .CLKFBOUTB(),
+        .CLKOUT0(rxc_shift_raw), .CLKOUT0B(), .CLKOUT1(), .CLKOUT1B(),
+        .CLKOUT2(), .CLKOUT2B(), .CLKOUT3(), .CLKOUT3B(), .CLKOUT4(),
+        .CLKOUT5(), .CLKOUT6(), .LOCKED(rx_mmcm_locked),
+        .CLKFBSTOPPED(), .CLKINSTOPPED(),
+        .DADDR(7'd0), .DCLK(1'b0), .DEN(1'b0), .DI(16'd0), .DO(),
+        .DRDY(), .DWE(1'b0), .CDDCREQ(1'b0), .CDDCDONE(), .PSCLK(1'b0),
+        .PSEN(1'b0), .PSINCDEC(1'b0), .PSDONE(), .PWRDWN(1'b0),
+        .RST(rx_mmcm_reset)
+    );
+    BUFG u_bufg_rx_mmcm_fb (.I(rx_mmcm_fb_out), .O(rx_mmcm_fb_in));
+    BUFG u_bufg_rxc (.I(rxc_shift_raw), .O(rxc));
+
     // KSZ9031 straps select auto-negotiation for this fixed 1000BASE-T mode.
     assign phy_mdc = 1'b0;
     assign phy_mdio = 1'bz;
 
-    wire net_reset_async = rst_p1 | ~mmcm_locked | ~phy_reset_nr;
+    wire net_reset_async = rst_p1 | ~mmcm_locked | ~phy_reset_nr |
+        ~rx_mmcm_locked;
     (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
     reg [1:0] tx_reset_pipe = 2'b11;
     (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
@@ -177,6 +206,7 @@ module axku042_open_net_core (
     wire rx_frame_valid, rx_frame_consume;
     wire [10:0] rx_frame_len, rx_frame_rd_addr;
     wire [7:0] rx_frame_rd_data;
+    wire [31:0] rx_good_frames, rx_bad_frames, rx_dropped_frames;
     wire tx_request_toggle, tx_done_toggle;
     wire [10:0] tx_frame_len, tx_frame_rd_addr;
     wire [7:0] tx_frame_rd_data;
@@ -204,8 +234,8 @@ module axku042_open_net_core (
         .gmii_rx_dv(gmii_rx_dv), .gmii_rx_er(gmii_rx_er),
         .frame_valid(rx_frame_valid), .frame_len(rx_frame_len),
         .frame_consume(rx_frame_consume), .frame_rd_addr(rx_frame_rd_addr),
-        .frame_rd_data(rx_frame_rd_data), .good_frames(), .bad_frames(),
-        .dropped_frames()
+        .frame_rd_data(rx_frame_rd_data), .good_frames(rx_good_frames),
+        .bad_frames(rx_bad_frames), .dropped_frames(rx_dropped_frames)
     );
 
     rbcp_cdc_bridge u_rbcp_cdc (
@@ -230,6 +260,8 @@ module axku042_open_net_core (
         .tx_frame_rd_data(tx_frame_rd_data), .arp_replies(), .icmp_replies(),
         .unsupported_frames(), .response_drops(), .tcp_connections(),
         .tcp_segments(), .tcp_retransmissions(), .app_tx_wr(replay_tx_wr),
+        .rx_good_frames(rx_good_frames), .rx_bad_frames(rx_bad_frames),
+        .rx_dropped_frames(rx_dropped_frames),
         .app_tx_data(replay_tx_data), .app_tcp_tx_full(replay_tcp_tx_full),
         .app_tcp_open(protocol_tcp_open),
         .app_session_start(protocol_session_start),
