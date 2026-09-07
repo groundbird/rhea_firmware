@@ -5,6 +5,7 @@
 
 # Set the reference directory for source file relative paths (by default the value is script directory path)
 set origin_dir "."
+set use_open_net false
 
 # Use origin directory path location variable, if specified in the tcl shell
 if { [info exists ::origin_dir_loc] } {
@@ -34,6 +35,7 @@ proc print_help {} {
   puts "$script_file"
   puts "$script_file -tclargs \[--origin_dir <path>\]"
   puts "$script_file -tclargs \[--project_name <name>\]"
+  puts "$script_file -tclargs \[--open-net\]"
   puts "$script_file -tclargs \[--help\]\n"
   puts "Usage:"
   puts "Name                   Description"
@@ -45,6 +47,7 @@ proc print_help {} {
   puts "\[--project_name <name>\] Create project with the specified name. Default"
   puts "                       name is the name of the project from where this"
   puts "                       script was generated.\n"
+  puts "\[--open-net\]           Build the single-client open TCP implementation.\n"
   puts "\[--help\]               Print help information for this script"
   puts "-------------------------------------------------------------------------\n"
   exit 0
@@ -56,6 +59,7 @@ if { $::argc > 0 } {
     switch -regexp -- $option {
       "--origin_dir"   { incr i; set origin_dir [lindex $::argv $i] }
       "--project_name" { incr i; set _xil_proj_name_ [lindex $::argv $i] }
+      "--open-net"     { set use_open_net true }
       "--help"         { print_help }
       default {
         if { [regexp {^-} $option] } {
@@ -130,16 +134,28 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
-set files [list \
- [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.edf"] \
- [file normalize "${origin_dir}/src/AT93C46_M24C08/blk_mem_gen_v7_3.v"] \
- [file normalize "${origin_dir}/src/LC04/AT93C46_LC04.v"] \
- [file normalize "${origin_dir}/src/LC04/LC04_READER.v"] \
- [file normalize "${origin_dir}/src/LC04/LC04_WRITER.v"] \
- [file normalize "${origin_dir}/src/AXKU042/axku042_sitcp_core.v"] \
- [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.V"] \
- [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/TIMER.v"] \
- [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/WRAP_SiTCP_GMII_XCKU_32K.V"] \
+set network_files [list \
+ [file normalize "${origin_dir}/src/net/gmii_rx_frame.v"] \
+ [file normalize "${origin_dir}/src/net/gmii_tx_frame.v"] \
+ [file normalize "${origin_dir}/src/net/tcp_tx_async_adapter.v"] \
+ [file normalize "${origin_dir}/src/net/tcp_tx_replay_buffer.v"] \
+ [file normalize "${origin_dir}/src/net/arp_icmp_server.v"] \
+ [file normalize "${origin_dir}/src/AXKU042/axku042_open_net_core.v"] \
+]
+if {!$use_open_net} {
+  set network_files [concat [list \
+   [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.edf"] \
+   [file normalize "${origin_dir}/src/AT93C46_M24C08/blk_mem_gen_v7_3.v"] \
+   [file normalize "${origin_dir}/src/LC04/AT93C46_LC04.v"] \
+   [file normalize "${origin_dir}/src/LC04/LC04_READER.v"] \
+   [file normalize "${origin_dir}/src/LC04/LC04_WRITER.v"] \
+   [file normalize "${origin_dir}/src/AXKU042/axku042_sitcp_core.v"] \
+   [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/SiTCP_XCKU_32K_BBT_V110.V"] \
+   [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/TIMER.v"] \
+   [file normalize "${origin_dir}/src/XCKUSiTCPlib32k_11V/WRAP_SiTCP_GMII_XCKU_32K.V"] \
+  ] $network_files]
+}
+set files [concat $network_files [list \
  [file normalize "${origin_dir}/src/verilog/dac_obuf.v"] \
  [file normalize "${origin_dir}/src/verilog/debounce.v"] \
  [file normalize "${origin_dir}/src/verilog/delayed_reset.v"] \
@@ -179,7 +195,7 @@ set files [list \
  [file normalize "${origin_dir}/src/axi_sitcp/adapter_8_32_w.v"] \
  [file normalize "${origin_dir}/src/axi_sitcp/adapter_8_32.v"] \
  [file normalize "${origin_dir}/src/axi_sitcp/rbcp_bridge.v"] \
-]
+]]
 add_files -norecurse -fileset $obj $files
 set_property FILE_TYPE {VHDL 2008} [get_files "${origin_dir}/src/vhdl/formatter.vhd"]
 
@@ -226,7 +242,7 @@ set_property -name "file_type" -value "VHDL" -objects $file_obj
 set file "$origin_dir/src/vhdl/formatter.vhd"
 set file [file normalize $file]
 set file_obj [get_files -of_objects [get_filesets sources_1] [list "*$file"]]
-set_property -name "file_type" -value "VHDL" -objects $file_obj
+set_property -name "file_type" -value "VHDL 2008" -objects $file_obj
 
 set file "$origin_dir/src/vhdl/info.vhdl"
 set file [file normalize $file]
@@ -316,6 +332,9 @@ set_property -name "file_type" -value "VHDL" -objects $file_obj
 set obj [get_filesets sources_1]
 set_property -name "top" -value "rhea" -objects $obj
 set_property -name "top_auto_set" -value "0" -objects $obj
+if {$use_open_net} {
+  set_property -name "generic" -value "USE_OPEN_NET=true" -objects $obj
+}
 
 # Create managed IPs directly from Tcl instead of importing pre-generated .xci files.
 set managed_ip_script [file normalize "${origin_dir}/ip/create_managed_ips.tcl"]
@@ -347,12 +366,14 @@ set_property -name "file_type" -value "XDC" -objects $file_obj
 
 # Add/Import constrs file and set constrs file properties
 
-set file "[file normalize "$origin_dir/src/XCKUSiTCPlib32k_11V/EDF_SiTCP_constraints.xdc"]"
-set file_added [add_files -norecurse -fileset $obj [list $file]]
-set file "$origin_dir/src/XCKUSiTCPlib32k_11V/EDF_SiTCP_constraints.xdc"
-set file [file normalize $file]
-set file_obj [get_files -of_objects [get_filesets constrs_1] [list "*$file"]]
-set_property -name "file_type" -value "XDC" -objects $file_obj
+if {!$use_open_net} {
+  set file "[file normalize "$origin_dir/src/XCKUSiTCPlib32k_11V/EDF_SiTCP_constraints.xdc"]"
+  set file_added [add_files -norecurse -fileset $obj [list $file]]
+  set file "$origin_dir/src/XCKUSiTCPlib32k_11V/EDF_SiTCP_constraints.xdc"
+  set file [file normalize $file]
+  set file_obj [get_files -of_objects [get_filesets constrs_1] [list "*$file"]]
+  set_property -name "file_type" -value "XDC" -objects $file_obj
+}
 
 # Set 'constrs_1' fileset properties
 set obj [get_filesets constrs_1]
@@ -743,6 +764,8 @@ set_property -name "steps.place_design.args.directive" -value "Explore" -objects
 set_property -name "steps.phys_opt_design.is_enabled" -value "1" -objects $obj
 set_property -name "steps.phys_opt_design.args.directive" -value "Explore" -objects $obj
 set_property -name "steps.route_design.args.directive" -value "Explore" -objects $obj
+set_property -name "steps.post_route_phys_opt_design.is_enabled" -value "1" -objects $obj
+set_property -name "steps.post_route_phys_opt_design.args.directive" -value "AggressiveExplore" -objects $obj
 set_property -name "steps.write_bitstream.args.readback_file" -value "0" -objects $obj
 set_property -name "steps.write_bitstream.args.verbose" -value "0" -objects $obj
 

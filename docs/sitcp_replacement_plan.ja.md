@@ -56,6 +56,11 @@ ACKだけが保持領域を解放する。SiTCP相当の1 byte書込み、接続
 200 MHzのSiTCP互換入力から125 MHzのTCP/replay clockへ渡す64 byte非同期FIFOも追加した。
 Gray code pointerとsession reset完了の往復handshakeにより、切断時のFIFO残留を次接続へ渡さない。
 RST再接続のwire byte照合後、実機で直ちに2回接続して320.631 Mbps、320.641 Mbpsと連番検査PASSを確認した。
+物理層からTCPまでを共通`axku042_open_net_core`へ分離し、`USE_OPEN_NET` genericと`--open-net`で
+RHEAからvendor SiTCPを置換できるようにした。8チャンネルへ一時縮小したRHEA全体では配置配線とbitstream生成が完了し、
+24,785 LUT、33,865 FF、121 RAMB36、28 RAMB18、102 DSP、setup WNS +0.060 ns、hold WHS +0.030 nsだった。
+ソースは64チャンネルへ戻してあり、64チャンネル版の実装確認は未実施である。RBCPもまだinactive固定のため、
+8チャンネルRHEA bitstreamは実機へ書き込まず、次に制御経路を実装する。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。

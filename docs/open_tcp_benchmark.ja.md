@@ -39,12 +39,12 @@ AXKU042ではDigilent JTAGから揮発性bitstreamを書込み、ping 5/5応答�
 
 | 項目 | リプレイBRAM版 | 再生成版 | SiTCP基準 |
 |---|---:|---:|---:|
-| TCP payload | **40.080 MB/s (320.641 Mbps)** | 40.080 MB/s (320.640 Mbps) | 39.832 MB/s (318.654 Mbps) |
+| TCP payload | **40.081 MB/s (320.649 Mbps)** | 40.080 MB/s (320.640 Mbps) | 39.832 MB/s (318.654 Mbps) |
 | 32 bit連番検査 | PASS | PASS | PASS |
-| Total LUT | 3,378 | 2,862 | 2,852 |
+| Total LUT | 3,377 | 2,862 | 2,852 |
 | FF | 1,400 | 1,156 | 4,821 |
 | RAMB36 / RAMB18 | 8 / 0 | 0 / 0 | 9 / 5 |
-| post-route WNS / WHS | +1.853 / +0.042 ns | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
+| post-route WNS / WHS | +1.926 / +0.041 ns | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
 
 独自TCPの1秒区間はおおむね320.5～320.7 Mbpsだった。PC側checkerはPython標準ライブラリを使用し、
 TCPの任意の`recv()`分割をまたいで欠損、重複、順序違反を検査した。
@@ -63,8 +63,34 @@ RHEA側と同じ200 MHz入力へ64 byte非同期FIFOを追加し、Gray code poi
 FULLはFIFO満杯の8 byte前に通知する。切断時にFIFOへ残ったbyteが次接続へ出ないよう、session resetを
 125 MHz側から200 MHz側へ送り、write pointerのreset完了ackが戻るまでread側を停止する。
 xsimでは異なるclock位相でFULL後8 byte、順序、切断中書込み、RST後の再接続とpayloadの0再開を確認した。
-実機では10秒測定を直ちに2回行い、40.079 MB/s（320.631 Mbps）と40.080 MB/s（320.641 Mbps）で
+共通coreへ分離した最終構成の実機では10秒測定を直ちに2回行い、40.081 MB/s（320.649 Mbps）と40.080 MB/s（320.641 Mbps）で
 両方とも連番検査PASSだった。
+
+## RHEA統合
+
+物理層からTCPまでを`axku042_open_net_core`へ分離し、既存`axku042_sitcp_core`と同じ外部ポートにした。
+`sitcp.vhd`とRHEA topのgeneric `USE_OPEN_NET`、プロジェクト生成時の`--open-net`により、vendor SiTCP
+netlistを読み込まずに独自coreを選べる。静的MAC/IPとTCP port 24を用い、EEPROMの読出し結果には依存しない。
+RBCPはまだ未実装なので出力を安全な非active値へ固定している。
+
+配置配線時間を短縮するため、チャンネル定数を一時的に64から8へ変更してRHEA全体を実装した。
+`data_transfer_to_sitcp`の250 MHz入力へ1段pipelineを追加した結果、post-route phys-opt後の
+setup WNSは+0.060 ns、hold WHSは+0.030 nsとなり、bitstream生成まで成功した。
+
+| 項目 | RHEA全体（8チャンネルdebug build） | 独自network core階層 |
+|---|---:|---:|
+| LUT | 24,785 | 3,021 |
+| FF | 33,865 | 1,349 |
+| RAMB36 / RAMB18 | 121 / 28 | 8 / 0 |
+| DSP | 102 | - |
+
+この実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
+RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す送信経路にCritical/Warning判定が残る。
+送信経路はrequest toggleの2段同期中からdone toggleが戻るまでbufferを保持する設計で実機試験済みだが、
+運用判定までにCDC制約またはVivadoが認識できる構造へ整理する。
+
+ソースのチャンネル定数は64へ戻してある。現在の`rhea.bit`は8チャンネルdebug buildの生成物であり、
+RBCPが未実装なのでFPGAへは書き込んでいない。64チャンネル版の配置配線確認は次の段階で行う。
 
 ## 再現方法
 
@@ -73,6 +99,15 @@ xsimでは異なるclock位相でFULL後8 byte、順序、切断中書込み、R
 ```bash
 vivado -mode batch -nolog -nojournal \
   -source vivado/create_axku042_open_net_test.tcl -tclargs --build
+```
+
+RHEA全体の独自network版は次の2段階で生成する。
+
+```bash
+vivado -mode batch -nolog -nojournal \
+  -source rhea-fpga.tcl -tclargs --open-net
+vivado -mode batch -nolog -nojournal \
+  -source vivado/build_axku042_open_rhea.tcl
 ```
 
 USB JTAG版Docker内から揮発性設定へ書き込む。
@@ -94,8 +129,8 @@ python3 tools/sitcp_benchmark.py --no-rbcp --seconds 30 --warmup 2
 
 このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送と32 KiB送信保持は実装したが、RTTによるRTO更新、
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
-200 MHzのSiTCP互換送信境界までは実装したが、現在のテストトップはRHEAの代わりに連番生成器を接続している。
+200 MHzのSiTCP互換送信境界とRHEA全体への接続、8チャンネルdebug buildまでは完了した。
 
-次段ではこの境界を既存`data_transfer_to_sitcp`と代替可能なcore wrapperへ組み込み、RHEA全体をビルドする。
-並行して接続終了の全経路と重複ACKを強化し、その後UDP/RBCPを同じMACへ載せる。LUTはSiTCPより増えているため、
+次段ではUDP/RBCPを同じMACへ載せ、RHEAの制御経路を有効にする。その後64チャンネル版の配置配線、
+実機でのRHEAデータ形式と連続転送を確認する。並行して接続終了の全経路と重複ACKを強化する。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

@@ -75,6 +75,11 @@ set_clock_groups -asynchronous \
 set_false_path -from [get_ports {phy_rxd[*] phy_rxdv}]
 set_false_path -to [get_ports {phy_txd[*] phy_txen phy_gtxc}]
 
+# The first stage of each network reset synchronizer is asynchronously
+# asserted. The second stage releases reset synchronously in its clock domain.
+set net_reset_async_pins [get_pins -hier -regexp {.*reset_pipe_reg\[[01]\]/PRE}]
+set_false_path -to $net_reset_async_pins
+
 # -----------------------------------------------------------------------------
 # EEPROM I2C
 # -----------------------------------------------------------------------------

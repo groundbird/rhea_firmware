@@ -41,6 +41,8 @@ library work;
 use work.rhea_pkg.all;
 
 entity rhea is
+  generic (
+    USE_OPEN_NET : boolean := false);
   port (
     -- System / user I/O
     sysclk_200MHz_p : in     std_logic;
@@ -453,6 +455,8 @@ architecture Behavioral of rhea is
   signal reset_delay : std_logic;
 
   component sitcp is
+    generic (
+      USE_OPEN_NET : boolean := false);
     port (
       -- System I/F
       clk_200        : in    std_logic;
@@ -1446,6 +1450,8 @@ begin
   -- SiTCP
   ---------------------------------------------------------------------------
   SiTCP_inst : sitcp
+    generic map (
+      USE_OPEN_NET => USE_OPEN_NET)
     port map (
       clk_200        => clk_int_200,
       rst            => (reset_int_sitcp or reset_delay),

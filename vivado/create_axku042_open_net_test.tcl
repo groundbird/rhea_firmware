@@ -23,6 +23,7 @@ set rtl_files [list \
     [file join $net_dir tcp_tx_async_adapter.v] \
     [file join $net_dir tcp_tx_replay_buffer.v] \
     [file join $net_dir arp_icmp_server.v] \
+    [file join $axku_dir axku042_open_net_core.v] \
     [file join $axku_dir axku042_open_net_test_top.v] \
 ]
 add_files -norecurse $rtl_files

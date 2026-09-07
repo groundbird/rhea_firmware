@@ -79,9 +79,26 @@ architecture Behavioral of data_transfer_to_sitcp is
   
   signal prog_full_0       : std_logic;
   signal prog_full_1       : std_logic;
+  signal fifo_wr_en_buf    : std_logic;
+  signal din_buf           : std_logic_vector(7 downto 0);
 
 
 begin
+
+  -- Register the formatter output before the large FIFO. This keeps one byte
+  -- per clock throughput while breaking the 250 MHz formatter-to-BRAM path.
+  process(wr_clk)
+  begin
+    if rising_edge(wr_clk) then
+      if rst = '1' then
+        fifo_wr_en_buf <= '0';
+        din_buf        <= (others => '0');
+      else
+        fifo_wr_en_buf <= fifo_wr_en;
+        din_buf        <= din;
+      end if;
+    end if;
+  end process;
 
   FIFO_128KB_for_SiTCP_0 : fifo_for_sitcp
     port map (
@@ -89,8 +106,8 @@ begin
       -- write
       wr_clk        => wr_clk,
       full          => full_0,
-      din           => din,
-      wr_en         => fifo_wr_en,
+      din           => din_buf,
+      wr_en         => fifo_wr_en_buf,
       almost_full   => almost_full_0,
       prog_full     => prog_full_0,
       -- read
