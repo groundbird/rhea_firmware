@@ -8,7 +8,9 @@ module arp_icmp_server #(
     parameter MAX_FRAME_BYTES = 1536,
     parameter ADDR_WIDTH = 11,
     parameter [31:0] TCP_CWND_BYTES = 32'd14600,
-    parameter integer RTO_CYCLES = 125_000_000
+    parameter integer RTO_CYCLES = 125_000_000,
+    parameter USE_REPLAY_BUFFER = 0,
+    parameter REPLAY_ADDR_WIDTH = 15
 ) (
     input  wire                  rx_clk,
     input  wire                  rst,
@@ -28,7 +30,12 @@ module arp_icmp_server #(
     output reg  [31:0]           response_drops,
     output reg  [31:0]           tcp_connections,
     output reg  [31:0]           tcp_segments,
-    output reg  [31:0]           tcp_retransmissions
+    output reg  [31:0]           tcp_retransmissions,
+    input  wire                  app_tx_wr,
+    input  wire [7:0]            app_tx_data,
+    output wire                  app_tcp_tx_full,
+    output wire                  app_tcp_open,
+    output reg                   app_session_start
 );
     localparam ST_IDLE = 4'd0, ST_PARSE = 4'd1, ST_CHECK = 4'd2,
                ST_BUILD_ARP = 4'd3, ST_BUILD_ICMP = 4'd4,
@@ -87,6 +94,49 @@ module arp_icmp_server #(
     reg [15:0] checksum_word;
     reg [31:0] rto_counter;
     reg rto_expired;
+    reg replay_ack_valid;
+    reg [31:0] replay_ack_seq;
+    wire [31:0] replay_first_stored_seq;
+    wire [31:0] replay_write_seq;
+    wire [REPLAY_ADDR_WIDTH:0] replay_buffered_bytes;
+    wire [31:0] replay_overflow_count, replay_invalid_ack_count;
+    wire [7:0] replay_read_data;
+    wire [31:0] replay_read_seq =
+        (state == ST_TCP_CHECKSUM && index >= 16'd19)
+            ? tcp_build_seq + index - 16'd19 :
+        (state == ST_BUILD_TCP && index >= 16'd53)
+            ? tcp_build_seq + index - 16'd53 : tcp_build_seq;
+
+    generate
+        if (USE_REPLAY_BUFFER) begin : gen_replay_buffer
+            tcp_tx_replay_buffer #(
+                .ADDR_WIDTH(REPLAY_ADDR_WIDTH),
+                .DEPTH_BYTES(1 << REPLAY_ADDR_WIDTH),
+                .FULL_GUARD_BYTES(8)
+            ) u_replay_buffer (
+                .clk(rx_clk), .rst(rst),
+                .session_start(app_session_start),
+                .session_first_seq(TCP_ISN + 1'b1),
+                .tx_wr(app_tx_wr), .tx_data(app_tx_data),
+                .tcp_tx_full(app_tcp_tx_full),
+                .overflow_count(replay_overflow_count),
+                .ack_valid(replay_ack_valid), .ack_seq(replay_ack_seq),
+                .invalid_ack_count(replay_invalid_ack_count),
+                .read_seq(replay_read_seq), .read_data(replay_read_data),
+                .first_stored_seq(replay_first_stored_seq),
+                .write_seq(replay_write_seq),
+                .buffered_bytes(replay_buffered_bytes)
+            );
+        end else begin : gen_benchmark_payload
+            assign app_tcp_tx_full = 1'b0;
+            assign replay_first_stored_seq = TCP_ISN + 1'b1;
+            assign replay_write_seq = 32'hffff_ffff;
+            assign replay_buffered_bytes = 0;
+            assign replay_overflow_count = 0;
+            assign replay_invalid_ack_count = 0;
+            assign replay_read_data = 0;
+        end
+    endgenerate
 
     function [15:0] csum_add16;
         input [15:0] sum;
@@ -148,8 +198,9 @@ module arp_icmp_server #(
                 14: tcp_segment_byte = 8'h80;
                 15: tcp_segment_byte = 8'h00;
                 16, 17, 18, 19: tcp_segment_byte = 8'h00;
-                default: tcp_segment_byte = benchmark_payload_byte(
-                    tcp_build_seq, offset - 16'd20);
+                default: tcp_segment_byte = USE_REPLAY_BUFFER
+                    ? replay_read_data : benchmark_payload_byte(
+                        tcp_build_seq, offset - 16'd20);
             endcase
         end
     endfunction
@@ -183,6 +234,7 @@ module arp_icmp_server #(
     wire [31:0] tcp_flight_bytes = snd_nxt - snd_una;
     wire [31:0] tcp_send_limit = ({16'd0, peer_window} < TCP_CWND_BYTES)
         ? {16'd0, peer_window} : TCP_CWND_BYTES;
+    assign app_tcp_open = tcp_state == TCP_ESTABLISHED;
 
     always @* begin
         build_data = rx_frame_rd_data;
@@ -371,10 +423,14 @@ module arp_icmp_server #(
             tcp_calc_sum <= 0; tcp_calc_high <= 0; tcp_build_from_rx <= 0;
             tcp_validate_sum <= 0; tcp_checksum_ok <= 0;
             rto_counter <= 0; rto_expired <= 0;
+            replay_ack_valid <= 0; replay_ack_seq <= 0;
+            app_session_start <= 0;
         end else begin
             tx_done_meta <= tx_done_toggle;
             tx_done_sync <= tx_done_meta;
             rx_frame_consume <= 0;
+            replay_ack_valid <= 0;
+            app_session_start <= 0;
             if (tcp_state == TCP_LISTEN || snd_una == snd_nxt) begin
                 rto_counter <= 0;
                 rto_expired <= 0;
@@ -412,7 +468,8 @@ module arp_icmp_server #(
                         tcp_build_flags <= tcp_state == TCP_SYN_RCVD ? 8'h12 :
                             (tcp_state == TCP_LAST_ACK ? 8'h11 : 8'h18);
                         tcp_build_payload_len <= tcp_state == TCP_ESTABLISHED
-                            ? TCP_PAYLOAD_BYTES : 16'd0;
+                            ? ((snd_nxt - snd_una < TCP_PAYLOAD_BYTES)
+                                ? snd_nxt - snd_una : TCP_PAYLOAD_BYTES) : 16'd0;
                         tcp_build_ip_id <= tcp_build_ip_id + 1'b1;
                         tcp_calc_sum <= 0;
                         tcp_calc_high <= 0;
@@ -424,7 +481,9 @@ module arp_icmp_server #(
                         state <= ST_TCP_IP_CHECKSUM;
                     end else if (tcp_state == TCP_ESTABLISHED && !tx_buffer_busy &&
                             tcp_send_limit >= TCP_PAYLOAD_BYTES &&
-                            tcp_flight_bytes <= tcp_send_limit - TCP_PAYLOAD_BYTES) begin
+                            tcp_flight_bytes <= tcp_send_limit - TCP_PAYLOAD_BYTES &&
+                            (!USE_REPLAY_BUFFER ||
+                                replay_write_seq - snd_nxt >= TCP_PAYLOAD_BYTES)) begin
                         tcp_build_seq <= snd_nxt;
                         tcp_build_ack <= rcv_nxt;
                         tcp_build_flags <= 8'h18;
@@ -561,6 +620,7 @@ module arp_icmp_server #(
                             tcp_build_from_rx <= 1;
                             index <= 0;
                             tcp_state <= TCP_SYN_RCVD;
+                            app_session_start <= 1;
                             rto_counter <= 0;
                             rto_expired <= 0;
                             state <= ST_TCP_IP_CHECKSUM;
@@ -601,6 +661,8 @@ module arp_icmp_server #(
                                 tcp_rx_flags[4]) begin
                             if (tcp_rx_ack > snd_una && tcp_rx_ack <= snd_nxt) begin
                                 snd_una <= tcp_rx_ack;
+                                replay_ack_valid <= USE_REPLAY_BUFFER;
+                                replay_ack_seq <= tcp_rx_ack;
                                 rto_counter <= 0;
                                 rto_expired <= 0;
                             end

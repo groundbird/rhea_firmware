@@ -13,8 +13,13 @@
 - 累積ACKと相手の16 bit receive window、最大10 MSSの送信中データ
 - ACK付きカウンタストリーム送信、RST処理、基本的なFIN処理
 - 1秒RTO、最古の未ACKシーケンスからのSYN-ACK・データ・FIN再送
+- ACKまで送信データを保持する32 KiBリプレイリング
+- SiTCP相当の1 byte送信入力、`TCP_OPEN_ACK`相当の接続状態、`TCP_TX_FULL`立上がり後8 byteの書込み余裕
 
 送信データはSiTCP基準測定と同じ32 bit little-endian連番`0, 1, 2, ...`である。
+カウンタ生成器は通常のアプリケーション送信源としてリプレイリングへ書き込み、TCPエンジンは
+チェックサム計算時とフレーム生成時にBRAMから読み出す。RTO再送でも同じsequence位置を読み直すため、
+任意のRHEAデータへ置換できる経路になった。
 各1460 byteセグメントは、TCP checksum計算とフレームバッファ生成の2パスで処理する。
 この単純な構成の理論ペイロード速度は約324 Mbpsであり、1 byte/clock送信へ発展させる前の基準になる。
 
@@ -31,22 +36,27 @@ Vivado/xsim 2025.2.1の独立ベクター試験で、次を確認した。
 AXKU042ではDigilent JTAGから揮発性bitstreamを書込み、ping 5/5応答、packet loss 0%、RTT平均0.201 msを確認した。
 続いてLinux標準TCP socketで30秒受信し、次の結果を得た。
 
-| 項目 | 独自TCP | SiTCP基準 |
-|---|---:|---:|
-| TCP payload | **40.080 MB/s (320.640 Mbps)** | 39.832 MB/s (318.654 Mbps) |
-| 検査byte数 | 1,282,558,900 | 1,274,842,800 |
-| 32 bit連番検査 | PASS | PASS |
-| Total LUT | 2,862 | 2,852 |
-| FF | 1,156 | 4,821 |
-| RAMB36 / RAMB18 | 0 / 0 | 9 / 5 |
-| post-route WNS / WHS | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
+| 項目 | リプレイBRAM版 | 再生成版 | SiTCP基準 |
+|---|---:|---:|---:|
+| TCP payload | **40.080 MB/s (320.642 Mbps)** | 40.080 MB/s (320.640 Mbps) | 39.832 MB/s (318.654 Mbps) |
+| 32 bit連番検査 | PASS | PASS | PASS |
+| Total LUT | 3,331 | 2,862 | 2,852 |
+| FF | 1,332 | 1,156 | 4,821 |
+| RAMB36 / RAMB18 | 8 / 0 | 0 / 0 | 9 / 5 |
+| post-route WNS / WHS | +2.091 / +0.020 ns | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
 
 独自TCPの1秒区間はおおむね320.5～320.7 Mbpsだった。PC側checkerはPython標準ライブラリを使用し、
 TCPの任意の`recv()`分割をまたいで欠損、重複、順序違反を検査した。
 
-この後に固定1秒RTOと再送を追加した構成では、ACKを意図的に省いたxsim試験で`snd_una`からの
+固定1秒RTOと再送を追加した構成では、ACKを意図的に省いたxsim試験で`snd_una`からの
 1460 byte再送を全wire byte照合した。実機10秒試験は40.081 MB/s（320.649 Mbps）で連番検査PASS、
 post-route WNS/WHSは+1.701/+0.021 ns、資源量は3,011 LUT、1,181 FF、BRAM 0だった。
+
+続いて32 KiBリプレイリングを統合した。xsimではTCP sequenceの32 bit周回、FULL通知後8 byte、
+過剰書込みの封じ込め、累積ACK解放、通常の2セグメント送信、ACK欠落時にBRAMから同一内容を再送することを確認した。
+Vivadoはリングを8個のRAMB36E2として推論した。AXKU042の30秒実機試験は40.079 MB/s
+（320.632 Mbps）で連番検査PASSとなった。さらに接続確立前の入力を停止する最終構成で10秒測定し、
+40.080 MB/s（320.642 Mbps）、連番検査PASSだった。BRAM読出しによる速度低下は測定上見られなかった。
 
 ## 再現方法
 
@@ -74,11 +84,10 @@ python3 tools/sitcp_benchmark.py --no-rbcp --seconds 30 --warmup 2
 
 ## 次に必要な機能
 
-このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送は実装したが、RTTによるRTO更新、
+このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送と32 KiB送信保持は実装したが、RTTによるRTO更新、
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
-送信データも再生成可能な連番に限定しており、RHEAデータをACKまで保持する再送RAMは未接続である。
+現在のアプリケーション送信入力はPHY受信と同じ125 MHzであり、RHEAの200 MHzデータFIFOとのCDCは未接続である。
 
-次段では、ACK済み・新規送信済み・未送信位置を分けた送信リング、RTOと再送、重複ACK、
-接続終了の全経路を追加する。その後UDP/RBCPを同じMACへ載せ、既存`TCP_TX_FULL`の8 clock余裕を持つ
-アダプターを介してRHEAデータFIFOへ接続する。LUTはSiTCPと同程度まで増えているため、
+次段では200 MHz/125 MHz非同期FIFOを介してRHEAデータFIFOへ接続し、接続終了の全経路と重複ACKを強化する。
+その後UDP/RBCPを同じMACへ載せる。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

@@ -16,6 +16,7 @@ module arp_icmp_tb;
     wire [10:0] tx_len, tx_addr;
     wire [7:0] tx_data;
     wire [31:0] arp_replies, icmp_replies, unsupported_frames, response_drops;
+    wire unused_app_tcp_tx_full, unused_app_tcp_open, unused_app_session_start;
 
     gmii_rx_frame u_rx (
         .clk(clk), .rst(rst), .gmii_rxd(gmii_rxd), .gmii_rx_dv(gmii_rx_dv),
@@ -31,7 +32,11 @@ module arp_icmp_tb;
         .tx_frame_rd_addr(tx_addr), .tx_frame_rd_data(tx_data),
         .arp_replies(arp_replies), .icmp_replies(icmp_replies),
         .unsupported_frames(unsupported_frames), .response_drops(response_drops),
-        .tcp_connections(), .tcp_segments(), .tcp_retransmissions()
+        .tcp_connections(), .tcp_segments(), .tcp_retransmissions(),
+        .app_tx_wr(1'b0), .app_tx_data(8'd0),
+        .app_tcp_tx_full(unused_app_tcp_tx_full),
+        .app_tcp_open(unused_app_tcp_open),
+        .app_session_start(unused_app_session_start)
     );
     gmii_tx_frame u_tx (
         .clk(clk), .rst(rst), .request_toggle(tx_request), .done_toggle(tx_done),

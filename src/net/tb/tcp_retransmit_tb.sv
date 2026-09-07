@@ -12,6 +12,28 @@ module tcp_retransmit_tb;
     wire [7:0] rx_data, tx_data;
     wire tx_request, tx_done;
     wire [31:0] tcp_retransmissions;
+    wire app_tcp_tx_full, app_tcp_open, app_session_start;
+    reg app_tx_wr = 0;
+    reg [29:0] app_word_index = 0;
+    reg [1:0] app_byte_select = 0;
+    wire [7:0] app_tx_data = app_byte_select == 0
+        ? app_word_index[7:0] : app_byte_select == 1
+        ? app_word_index[15:8] : app_byte_select == 2
+        ? app_word_index[23:16] : {2'b00, app_word_index[29:24]};
+    always @(posedge clk) begin
+        if (rst || app_session_start) begin
+            app_tx_wr <= 0;
+            app_word_index <= 0;
+            app_byte_select <= 0;
+        end else begin
+            app_tx_wr <= app_tcp_open && ~app_tcp_tx_full;
+            if (app_tx_wr) begin
+                if (app_byte_select == 3)
+                    app_word_index <= app_word_index + 1'b1;
+                app_byte_select <= app_byte_select + 1'b1;
+            end
+        end
+    end
 
     gmii_rx_frame u_rx (
         .clk(clk), .rst(rst), .gmii_rxd(gmii_rxd), .gmii_rx_dv(gmii_rx_dv),
@@ -20,7 +42,8 @@ module tcp_retransmit_tb;
         .good_frames(), .bad_frames(), .dropped_frames()
     );
     arp_icmp_server #(
-        .TCP_CWND_BYTES(32'd1460), .RTO_CYCLES(10000)
+        .TCP_CWND_BYTES(32'd1460), .RTO_CYCLES(10000),
+        .USE_REPLAY_BUFFER(1)
     ) u_server (
         .rx_clk(clk), .rst(rst), .rx_frame_valid(rx_valid), .rx_frame_len(rx_len),
         .rx_frame_consume(rx_consume), .rx_frame_rd_addr(rx_addr),
@@ -29,7 +52,11 @@ module tcp_retransmit_tb;
         .tx_frame_rd_addr(tx_addr), .tx_frame_rd_data(tx_data),
         .arp_replies(), .icmp_replies(), .unsupported_frames(), .response_drops(),
         .tcp_connections(), .tcp_segments(),
-        .tcp_retransmissions(tcp_retransmissions)
+        .tcp_retransmissions(tcp_retransmissions),
+        .app_tx_wr(app_tx_wr), .app_tx_data(app_tx_data),
+        .app_tcp_tx_full(app_tcp_tx_full),
+        .app_tcp_open(app_tcp_open),
+        .app_session_start(app_session_start)
     );
     gmii_tx_frame u_tx (
         .clk(clk), .rst(rst), .request_toggle(tx_request), .done_toggle(tx_done),

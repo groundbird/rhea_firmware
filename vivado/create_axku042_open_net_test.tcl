@@ -20,6 +20,7 @@ set axku_dir [file join $repo_root src AXKU042]
 set rtl_files [list \
     [file join $net_dir gmii_rx_frame.v] \
     [file join $net_dir gmii_tx_frame.v] \
+    [file join $net_dir tcp_tx_replay_buffer.v] \
     [file join $net_dir arp_icmp_server.v] \
     [file join $axku_dir axku042_open_net_test_top.v] \
 ]
