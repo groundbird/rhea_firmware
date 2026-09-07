@@ -54,6 +54,7 @@ module arp_icmp_server #(
     reg [ADDR_WIDTH-1:0] build_len;
     reg [7:0] tx_mem [0:MAX_FRAME_BYTES-1];
 
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
     reg tx_done_meta, tx_done_sync;
     wire tx_buffer_busy = tx_done_sync != tx_request_toggle;
     assign tx_frame_rd_data = tx_mem[tx_frame_rd_addr];
@@ -94,6 +95,7 @@ module arp_icmp_server #(
     reg [15:0] checksum_word;
     reg [31:0] rto_counter;
     reg rto_expired;
+    reg app_tcp_open_source;
     reg replay_ack_valid;
     reg [31:0] replay_ack_seq;
     wire [31:0] replay_first_stored_seq;
@@ -234,7 +236,7 @@ module arp_icmp_server #(
     wire [31:0] tcp_flight_bytes = snd_nxt - snd_una;
     wire [31:0] tcp_send_limit = ({16'd0, peer_window} < TCP_CWND_BYTES)
         ? {16'd0, peer_window} : TCP_CWND_BYTES;
-    assign app_tcp_open = tcp_state == TCP_ESTABLISHED;
+    assign app_tcp_open = app_tcp_open_source;
 
     always @* begin
         build_data = rx_frame_rd_data;
@@ -425,12 +427,14 @@ module arp_icmp_server #(
             rto_counter <= 0; rto_expired <= 0;
             replay_ack_valid <= 0; replay_ack_seq <= 0;
             app_session_start <= 0;
+            app_tcp_open_source <= 0;
         end else begin
             tx_done_meta <= tx_done_toggle;
             tx_done_sync <= tx_done_meta;
             rx_frame_consume <= 0;
             replay_ack_valid <= 0;
             app_session_start <= 0;
+            app_tcp_open_source <= tcp_state == TCP_ESTABLISHED;
             if (tcp_state == TCP_LISTEN || snd_una == snd_nxt) begin
                 rto_counter <= 0;
                 rto_expired <= 0;

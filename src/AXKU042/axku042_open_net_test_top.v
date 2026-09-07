@@ -169,8 +169,11 @@ module axku042_open_net_test_top (
     wire tx_request_toggle, tx_done_toggle;
     wire [10:0] tx_frame_len, tx_frame_rd_addr;
     wire [7:0] tx_frame_rd_data;
-    wire app_tcp_tx_full, app_tcp_open, app_session_start;
-    reg app_tx_wr = 1'b0;
+    wire replay_tcp_tx_full, protocol_tcp_open, protocol_session_start;
+    wire tcp_tx_full, tcp_open_ack;
+    wire replay_tx_wr;
+    wire [7:0] replay_tx_data;
+    reg tcp_tx_wr = 1'b0;
     reg [29:0] app_word_index = 0;
     reg [1:0] app_byte_select = 0;
     wire [7:0] app_tx_data = app_byte_select == 2'd0
@@ -181,22 +184,33 @@ module axku042_open_net_test_top (
     // Benchmark producer using the same byte-stream contract as SiTCP's
     // TCP_TX_WR/TCP_TX_FULL interface. The replay ring preserves accepted
     // bytes until the peer acknowledges their TCP sequence numbers.
-    always @(posedge rxc) begin
-        if (rx_reset || app_session_start) begin
-            app_tx_wr <= 1'b0;
+    always @(posedge clk200) begin
+        if (rst_p1 || !tcp_open_ack) begin
+            tcp_tx_wr <= 1'b0;
             app_word_index <= 0;
             app_byte_select <= 0;
         end else begin
-            app_tx_wr <= app_tcp_open && ~app_tcp_tx_full;
+            tcp_tx_wr <= ~tcp_tx_full;
             // FULL is an early warning. A write already in flight when it
             // rises remains valid and must advance the producer position.
-            if (app_tx_wr) begin
+            if (tcp_tx_wr) begin
                 if (app_byte_select == 2'd3)
                     app_word_index <= app_word_index + 1'b1;
                 app_byte_select <= app_byte_select + 1'b1;
             end
         end
     end
+
+    tcp_tx_async_adapter u_tx_cdc (
+        .wr_clk(clk200), .wr_rst(rst_p1),
+        .tcp_open_rx(protocol_tcp_open), .tcp_open_ack(tcp_open_ack),
+        .tcp_tx_wr(tcp_tx_wr), .tcp_tx_data(app_tx_data),
+        .tcp_tx_full(tcp_tx_full), .overflow_count(),
+        .closed_write_count(), .rd_clk(rxc), .rd_rst(rx_reset),
+        .session_start_rx(protocol_session_start),
+        .replay_full(replay_tcp_tx_full), .replay_wr(replay_tx_wr),
+        .replay_data(replay_tx_data)
+    );
 
     gmii_rx_frame u_rx_frame (
         .clk(rxc), .rst(rx_reset), .gmii_rxd(gmii_rxd),
@@ -218,10 +232,10 @@ module axku042_open_net_test_top (
         .tx_frame_rd_data(tx_frame_rd_data), .arp_replies(), .icmp_replies(),
         .unsupported_frames(), .response_drops(), .tcp_connections(),
         .tcp_segments(), .tcp_retransmissions(),
-        .app_tx_wr(app_tx_wr), .app_tx_data(app_tx_data),
-        .app_tcp_tx_full(app_tcp_tx_full),
-        .app_tcp_open(app_tcp_open),
-        .app_session_start(app_session_start)
+        .app_tx_wr(replay_tx_wr), .app_tx_data(replay_tx_data),
+        .app_tcp_tx_full(replay_tcp_tx_full),
+        .app_tcp_open(protocol_tcp_open),
+        .app_session_start(protocol_session_start)
     );
 
     gmii_tx_frame u_tx_frame (

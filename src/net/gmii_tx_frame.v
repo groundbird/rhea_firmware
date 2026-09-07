@@ -19,7 +19,9 @@ module gmii_tx_frame #(
     localparam ST_IDLE = 3'd0, ST_PREAMBLE = 3'd1, ST_FRAME = 3'd2,
                ST_FCS = 3'd3, ST_IFG = 3'd4;
     reg [2:0] state;
-    reg request_meta, request_sync, request_seen;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+    reg request_meta, request_sync;
+    reg request_seen;
     reg [2:0] preamble_count;
     reg [1:0] fcs_index;
     reg [3:0] ifg_count;

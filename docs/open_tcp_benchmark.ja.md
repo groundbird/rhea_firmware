@@ -15,6 +15,7 @@
 - 1秒RTO、最古の未ACKシーケンスからのSYN-ACK・データ・FIN再送
 - ACKまで送信データを保持する32 KiBリプレイリング
 - SiTCP相当の1 byte送信入力、`TCP_OPEN_ACK`相当の接続状態、`TCP_TX_FULL`立上がり後8 byteの書込み余裕
+- 200 MHzユーザー入力から125 MHz PHY受信clockへ渡す64 byte非同期FIFO
 
 送信データはSiTCP基準測定と同じ32 bit little-endian連番`0, 1, 2, ...`である。
 カウンタ生成器は通常のアプリケーション送信源としてリプレイリングへ書き込み、TCPエンジンは
@@ -38,12 +39,12 @@ AXKU042ではDigilent JTAGから揮発性bitstreamを書込み、ping 5/5応答�
 
 | 項目 | リプレイBRAM版 | 再生成版 | SiTCP基準 |
 |---|---:|---:|---:|
-| TCP payload | **40.080 MB/s (320.642 Mbps)** | 40.080 MB/s (320.640 Mbps) | 39.832 MB/s (318.654 Mbps) |
+| TCP payload | **40.080 MB/s (320.641 Mbps)** | 40.080 MB/s (320.640 Mbps) | 39.832 MB/s (318.654 Mbps) |
 | 32 bit連番検査 | PASS | PASS | PASS |
-| Total LUT | 3,331 | 2,862 | 2,852 |
-| FF | 1,332 | 1,156 | 4,821 |
+| Total LUT | 3,378 | 2,862 | 2,852 |
+| FF | 1,400 | 1,156 | 4,821 |
 | RAMB36 / RAMB18 | 8 / 0 | 0 / 0 | 9 / 5 |
-| post-route WNS / WHS | +2.091 / +0.020 ns | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
+| post-route WNS / WHS | +1.853 / +0.042 ns | +1.401 / +0.034 ns | +0.990 / +0.020 ns |
 
 独自TCPの1秒区間はおおむね320.5～320.7 Mbpsだった。PC側checkerはPython標準ライブラリを使用し、
 TCPの任意の`recv()`分割をまたいで欠損、重複、順序違反を検査した。
@@ -57,6 +58,13 @@ post-route WNS/WHSは+1.701/+0.021 ns、資源量は3,011 LUT、1,181 FF、BRAM 
 Vivadoはリングを8個のRAMB36E2として推論した。AXKU042の30秒実機試験は40.079 MB/s
 （320.632 Mbps）で連番検査PASSとなった。さらに接続確立前の入力を停止する最終構成で10秒測定し、
 40.080 MB/s（320.642 Mbps）、連番検査PASSだった。BRAM読出しによる速度低下は測定上見られなかった。
+
+RHEA側と同じ200 MHz入力へ64 byte非同期FIFOを追加し、Gray code pointerを2段同期した。
+FULLはFIFO満杯の8 byte前に通知する。切断時にFIFOへ残ったbyteが次接続へ出ないよう、session resetを
+125 MHz側から200 MHz側へ送り、write pointerのreset完了ackが戻るまでread側を停止する。
+xsimでは異なるclock位相でFULL後8 byte、順序、切断中書込み、RST後の再接続とpayloadの0再開を確認した。
+実機では10秒測定を直ちに2回行い、40.079 MB/s（320.631 Mbps）と40.080 MB/s（320.641 Mbps）で
+両方とも連番検査PASSだった。
 
 ## 再現方法
 
@@ -86,8 +94,8 @@ python3 tools/sitcp_benchmark.py --no-rbcp --seconds 30 --warmup 2
 
 このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送と32 KiB送信保持は実装したが、RTTによるRTO更新、
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
-現在のアプリケーション送信入力はPHY受信と同じ125 MHzであり、RHEAの200 MHzデータFIFOとのCDCは未接続である。
+200 MHzのSiTCP互換送信境界までは実装したが、現在のテストトップはRHEAの代わりに連番生成器を接続している。
 
-次段では200 MHz/125 MHz非同期FIFOを介してRHEAデータFIFOへ接続し、接続終了の全経路と重複ACKを強化する。
-その後UDP/RBCPを同じMACへ載せる。LUTはSiTCPより増えているため、
+次段ではこの境界を既存`data_transfer_to_sitcp`と代替可能なcore wrapperへ組み込み、RHEA全体をビルドする。
+並行して接続終了の全経路と重複ACKを強化し、その後UDP/RBCPを同じMACへ載せる。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

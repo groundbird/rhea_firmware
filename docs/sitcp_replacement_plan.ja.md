@@ -53,6 +53,9 @@ MAC側ではFCS、プリアンブル、最小フレーム長、IFG、フレー�
 さらに32 KiB送信リプレイリングを8 RAMB36E2で実装した。通常送信とRTO再送は同じBRAMデータを読み、
 ACKだけが保持領域を解放する。SiTCP相当の1 byte書込み、接続確立、早期FULL通知の境界を追加し、
 30秒の実機連番検査で320.632 Mbpsを得た。
+200 MHzのSiTCP互換入力から125 MHzのTCP/replay clockへ渡す64 byte非同期FIFOも追加した。
+Gray code pointerとsession reset完了の往復handshakeにより、切断時のFIFO残留を次接続へ渡さない。
+RST再接続のwire byte照合後、実機で直ちに2回接続して320.631 Mbps、320.641 Mbpsと連番検査PASSを確認した。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。

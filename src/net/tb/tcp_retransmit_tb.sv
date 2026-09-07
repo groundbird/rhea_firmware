@@ -2,6 +2,8 @@
 module tcp_retransmit_tb;
     reg clk = 0;
     always #4 clk = ~clk;
+    reg app_clk = 0;
+    always #2.5 app_clk = ~app_clk;
     reg rst = 1;
     reg [7:0] gmii_rxd = 0;
     reg gmii_rx_dv = 0, gmii_rx_er = 0;
@@ -12,7 +14,9 @@ module tcp_retransmit_tb;
     wire [7:0] rx_data, tx_data;
     wire tx_request, tx_done;
     wire [31:0] tcp_retransmissions;
-    wire app_tcp_tx_full, app_tcp_open, app_session_start;
+    wire replay_tcp_tx_full, protocol_tcp_open, protocol_session_start;
+    wire tcp_tx_full, tcp_open_ack, replay_tx_wr;
+    wire [7:0] replay_tx_data;
     reg app_tx_wr = 0;
     reg [29:0] app_word_index = 0;
     reg [1:0] app_byte_select = 0;
@@ -20,13 +24,13 @@ module tcp_retransmit_tb;
         ? app_word_index[7:0] : app_byte_select == 1
         ? app_word_index[15:8] : app_byte_select == 2
         ? app_word_index[23:16] : {2'b00, app_word_index[29:24]};
-    always @(posedge clk) begin
-        if (rst || app_session_start) begin
+    always @(posedge app_clk) begin
+        if (rst || !tcp_open_ack) begin
             app_tx_wr <= 0;
             app_word_index <= 0;
             app_byte_select <= 0;
         end else begin
-            app_tx_wr <= app_tcp_open && ~app_tcp_tx_full;
+            app_tx_wr <= ~tcp_tx_full;
             if (app_tx_wr) begin
                 if (app_byte_select == 3)
                     app_word_index <= app_word_index + 1'b1;
@@ -34,6 +38,17 @@ module tcp_retransmit_tb;
             end
         end
     end
+
+    tcp_tx_async_adapter u_tx_cdc (
+        .wr_clk(app_clk), .wr_rst(rst),
+        .tcp_open_rx(protocol_tcp_open), .tcp_open_ack(tcp_open_ack),
+        .tcp_tx_wr(app_tx_wr), .tcp_tx_data(app_tx_data),
+        .tcp_tx_full(tcp_tx_full), .overflow_count(),
+        .closed_write_count(), .rd_clk(clk), .rd_rst(rst),
+        .session_start_rx(protocol_session_start),
+        .replay_full(replay_tcp_tx_full), .replay_wr(replay_tx_wr),
+        .replay_data(replay_tx_data)
+    );
 
     gmii_rx_frame u_rx (
         .clk(clk), .rst(rst), .gmii_rxd(gmii_rxd), .gmii_rx_dv(gmii_rx_dv),
@@ -53,10 +68,10 @@ module tcp_retransmit_tb;
         .arp_replies(), .icmp_replies(), .unsupported_frames(), .response_drops(),
         .tcp_connections(), .tcp_segments(),
         .tcp_retransmissions(tcp_retransmissions),
-        .app_tx_wr(app_tx_wr), .app_tx_data(app_tx_data),
-        .app_tcp_tx_full(app_tcp_tx_full),
-        .app_tcp_open(app_tcp_open),
-        .app_session_start(app_session_start)
+        .app_tx_wr(replay_tx_wr), .app_tx_data(replay_tx_data),
+        .app_tcp_tx_full(replay_tcp_tx_full),
+        .app_tcp_open(protocol_tcp_open),
+        .app_session_start(protocol_session_start)
     );
     gmii_tx_frame u_tx (
         .clk(clk), .rst(rst), .request_toggle(tx_request), .done_toggle(tx_done),

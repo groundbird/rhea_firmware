@@ -102,12 +102,21 @@ def main():
     tcp_ack0 = tcp_frame(HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP,
                          host_port, 24, host_seq + 1, fpga_isn + 1 + 1460,
                          0x10, 0xffff, 0x2002)
+    tcp_rst = tcp_frame(HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP,
+                        host_port, 24, host_seq + 1,
+                        fpga_isn + 1 + 2 * 1460, 0x14, 0xffff, 0x2003)
     tcp_data0_retx = tcp_frame(LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP,
                                24, host_port, fpga_isn + 1, host_seq + 1,
                                0x18, 0x8000, 3, benchmark_payload(0))
     tcp_data1 = tcp_frame(LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP,
                           24, host_port, fpga_isn + 1 + 1460, host_seq + 1,
                           0x18, 0x8000, 3, benchmark_payload(365))
+    tcp_synack_reconnect = tcp_frame(
+        LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP, 24, host_port, fpga_isn,
+        host_seq + 1, 0x12, 0x8000, 4)
+    tcp_data_reconnect = tcp_frame(
+        LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP, 24, host_port, fpga_isn + 1,
+        host_seq + 1, 0x18, 0x8000, 5, benchmark_payload(0))
 
     for name, data in {
         "arp_request.hex": wire(arp_request),
@@ -120,8 +129,11 @@ def main():
         "tcp_ack.hex": wire(tcp_ack),
         "tcp_data0.hex": wire(tcp_data0),
         "tcp_ack0.hex": wire(tcp_ack0),
+        "tcp_rst.hex": wire(tcp_rst),
         "tcp_data0_retx.hex": wire(tcp_data0_retx),
         "tcp_data1.hex": wire(tcp_data1),
+        "tcp_synack_reconnect.hex": wire(tcp_synack_reconnect),
+        "tcp_data_reconnect.hex": wire(tcp_data_reconnect),
     }.items():
         write_hex(args.output / name, data)
 

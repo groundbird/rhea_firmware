@@ -2,6 +2,8 @@
 module tcp_benchmark_tb;
     reg clk = 0;
     always #4 clk = ~clk;
+    reg app_clk = 0;
+    always #2.5 app_clk = ~app_clk;
     reg rst = 1;
     reg [7:0] gmii_rxd = 0;
     reg gmii_rx_dv = 0, gmii_rx_er = 0;
@@ -15,7 +17,9 @@ module tcp_benchmark_tb;
     wire [10:0] tx_len, tx_addr;
     wire [7:0] tx_data;
     wire [31:0] tcp_connections, tcp_segments, tcp_retransmissions;
-    wire app_tcp_tx_full, app_tcp_open, app_session_start;
+    wire replay_tcp_tx_full, protocol_tcp_open, protocol_session_start;
+    wire tcp_tx_full, tcp_open_ack, replay_tx_wr;
+    wire [7:0] replay_tx_data;
     reg app_tx_wr = 0;
     reg [29:0] app_word_index = 0;
     reg [1:0] app_byte_select = 0;
@@ -23,13 +27,13 @@ module tcp_benchmark_tb;
         ? app_word_index[7:0] : app_byte_select == 1
         ? app_word_index[15:8] : app_byte_select == 2
         ? app_word_index[23:16] : {2'b00, app_word_index[29:24]};
-    always @(posedge clk) begin
-        if (rst || app_session_start) begin
+    always @(posedge app_clk) begin
+        if (rst || !tcp_open_ack) begin
             app_tx_wr <= 0;
             app_word_index <= 0;
             app_byte_select <= 0;
         end else begin
-            app_tx_wr <= app_tcp_open && ~app_tcp_tx_full;
+            app_tx_wr <= ~tcp_tx_full;
             if (app_tx_wr) begin
                 if (app_byte_select == 3)
                     app_word_index <= app_word_index + 1'b1;
@@ -38,13 +42,26 @@ module tcp_benchmark_tb;
         end
     end
 
+    tcp_tx_async_adapter u_tx_cdc (
+        .wr_clk(app_clk), .wr_rst(rst),
+        .tcp_open_rx(protocol_tcp_open), .tcp_open_ack(tcp_open_ack),
+        .tcp_tx_wr(app_tx_wr), .tcp_tx_data(app_tx_data),
+        .tcp_tx_full(tcp_tx_full), .overflow_count(),
+        .closed_write_count(), .rd_clk(clk), .rd_rst(rst),
+        .session_start_rx(protocol_session_start),
+        .replay_full(replay_tcp_tx_full), .replay_wr(replay_tx_wr),
+        .replay_data(replay_tx_data)
+    );
+
     gmii_rx_frame u_rx (
         .clk(clk), .rst(rst), .gmii_rxd(gmii_rxd), .gmii_rx_dv(gmii_rx_dv),
         .gmii_rx_er(gmii_rx_er), .frame_valid(rx_valid), .frame_len(rx_len),
         .frame_consume(rx_consume), .frame_rd_addr(rx_addr), .frame_rd_data(rx_data),
         .good_frames(), .bad_frames(), .dropped_frames()
     );
-    arp_icmp_server #(.USE_REPLAY_BUFFER(1)) u_server (
+    arp_icmp_server #(
+        .TCP_CWND_BYTES(32'd1460), .USE_REPLAY_BUFFER(1)
+    ) u_server (
         .rx_clk(clk), .rst(rst), .rx_frame_valid(rx_valid), .rx_frame_len(rx_len),
         .rx_frame_consume(rx_consume), .rx_frame_rd_addr(rx_addr),
         .rx_frame_rd_data(rx_data), .tx_request_toggle(tx_request),
@@ -53,10 +70,10 @@ module tcp_benchmark_tb;
         .arp_replies(), .icmp_replies(), .unsupported_frames(), .response_drops(),
         .tcp_connections(tcp_connections), .tcp_segments(tcp_segments),
         .tcp_retransmissions(tcp_retransmissions),
-        .app_tx_wr(app_tx_wr), .app_tx_data(app_tx_data),
-        .app_tcp_tx_full(app_tcp_tx_full),
-        .app_tcp_open(app_tcp_open),
-        .app_session_start(app_session_start)
+        .app_tx_wr(replay_tx_wr), .app_tx_data(replay_tx_data),
+        .app_tcp_tx_full(replay_tcp_tx_full),
+        .app_tcp_open(protocol_tcp_open),
+        .app_session_start(protocol_session_start)
     );
     gmii_tx_frame u_tx (
         .clk(clk), .rst(rst), .request_toggle(tx_request), .done_toggle(tx_done),
@@ -71,6 +88,9 @@ module tcp_benchmark_tb;
     reg [7:0] tcp_data0 [0:1517];
     reg [7:0] tcp_ack0 [0:63];
     reg [7:0] tcp_data1 [0:1517];
+    reg [7:0] tcp_rst [0:63];
+    reg [7:0] tcp_synack_reconnect [0:63];
+    reg [7:0] tcp_data_reconnect [0:1517];
     reg [7:0] captured [0:2047];
     integer i, captured_len;
 
@@ -89,7 +109,8 @@ module tcp_benchmark_tb;
                 case (kind)
                     0: value = tcp_syn[i];
                     1: value = tcp_ack[i];
-                    default: value = tcp_ack0[i];
+                    2: value = tcp_ack0[i];
+                    default: value = tcp_rst[i];
                 endcase
                 gmii_rxd = value;
                 @(negedge clk);
@@ -103,7 +124,7 @@ module tcp_benchmark_tb;
         integer expected_len;
         reg [7:0] expected;
         begin
-            expected_len = kind == 0 ? 64 : 1518;
+            expected_len = (kind == 0 || kind == 3) ? 64 : 1518;
             captured_len = 0;
             while (!gmii_tx_en) @(negedge clk);
             while (gmii_tx_en) begin
@@ -121,7 +142,9 @@ module tcp_benchmark_tb;
                 case (kind)
                     0: expected = tcp_synack[i];
                     1: expected = tcp_data0[i];
-                    default: expected = tcp_data1[i];
+                    2: expected = tcp_data1[i];
+                    3: expected = tcp_synack_reconnect[i];
+                    default: expected = tcp_data_reconnect[i];
                 endcase
                 if (captured[i+8] !== expected)
                     $fatal(1, "TCP reply %0d mismatch at %0d: got %02x expected %02x",
@@ -137,6 +160,9 @@ module tcp_benchmark_tb;
         $readmemh("tcp_data0.hex", tcp_data0);
         $readmemh("tcp_ack0.hex", tcp_ack0);
         $readmemh("tcp_data1.hex", tcp_data1);
+        $readmemh("tcp_rst.hex", tcp_rst);
+        $readmemh("tcp_synack_reconnect.hex", tcp_synack_reconnect);
+        $readmemh("tcp_data_reconnect.hex", tcp_data_reconnect);
         repeat (8) @(negedge clk);
         rst = 0;
 
@@ -146,9 +172,15 @@ module tcp_benchmark_tb;
         receive_and_compare(1);
         send_host_frame(2);
         receive_and_compare(2);
-        if (tcp_connections != 1 || tcp_segments < 3)
+        send_host_frame(3);
+        repeat (200) @(negedge clk);
+        send_host_frame(0);
+        receive_and_compare(3);
+        send_host_frame(1);
+        receive_and_compare(4);
+        if (tcp_connections != 2 || tcp_segments < 5)
             $fatal(1, "TCP state counters wrong");
-        $display("PASS: TCP handshake, checksums, sequence numbers, ACK window and two 1460-byte counter segments");
+        $display("PASS: TCP handshake, two data segments, RST reconnect and payload restart through 200/125 MHz CDC");
         $finish;
     end
 
