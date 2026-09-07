@@ -20,10 +20,12 @@ set axku_dir [file join $repo_root src AXKU042]
 set rtl_files [list \
     [file join $net_dir gmii_rx_frame.v] \
     [file join $net_dir gmii_tx_frame.v] \
+    [file join $net_dir rbcp_cdc_bridge.v] \
     [file join $net_dir tcp_tx_async_adapter.v] \
     [file join $net_dir tcp_tx_replay_buffer.v] \
     [file join $net_dir arp_icmp_server.v] \
     [file join $axku_dir axku042_open_net_core.v] \
+    [file join $axku_dir sitcp_benchmark.v] \
     [file join $axku_dir axku042_open_net_test_top.v] \
 ]
 add_files -norecurse $rtl_files
@@ -54,6 +56,7 @@ if {$do_build} {
     file mkdir $report_dir
     report_utilization -hierarchical -file [file join $report_dir utilization.rpt]
     report_timing_summary -report_unconstrained -file [file join $report_dir timing.rpt]
+    report_cdc -details -file [file join $report_dir cdc.rpt]
     report_drc -file [file join $report_dir drc.rpt]
     set worst_setup [get_timing_paths -delay_type max -max_paths 1]
     set worst_hold [get_timing_paths -delay_type min -max_paths 1]

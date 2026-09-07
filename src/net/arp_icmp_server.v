@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
-// Single-buffer ARP and IPv4 ICMP Echo responder. The receive buffer and this
-// engine share rx_clk. The transmit buffer is held stable across the toggle
-// handshake with gmii_tx_frame.
+// Single-buffer ARP, IPv4 ICMP, RBCP/UDP and single-client TCP engine. The
+// receive buffer and this engine share rx_clk. The transmit buffer is held
+// stable across the toggle handshake with gmii_tx_frame.
 module arp_icmp_server #(
     parameter [47:0] LOCAL_MAC = 48'h02_52_48_45_41_01,
     parameter [31:0] LOCAL_IP  = {8'd192, 8'd168, 8'd10, 8'd16},
@@ -35,20 +35,32 @@ module arp_icmp_server #(
     input  wire [7:0]            app_tx_data,
     output wire                  app_tcp_tx_full,
     output wire                  app_tcp_open,
-    output reg                   app_session_start
+    output reg                   app_session_start,
+    output reg                   rbcp_start,
+    output reg  [31:0]           rbcp_req_addr,
+    output reg  [7:0]            rbcp_req_wd,
+    output reg                   rbcp_req_we,
+    input  wire                  rbcp_busy,
+    input  wire                  rbcp_done,
+    input  wire                  rbcp_error,
+    input  wire [7:0]            rbcp_read_data
 );
     localparam ST_IDLE = 4'd0, ST_PARSE = 4'd1, ST_CHECK = 4'd2,
                ST_BUILD_ARP = 4'd3, ST_BUILD_ICMP = 4'd4,
                ST_WAIT_RX_RELEASE = 4'd5, ST_TCP_CHECKSUM = 4'd6,
                ST_BUILD_TCP = 4'd7, ST_TCP_RX_INIT = 4'd8,
                ST_TCP_RX_PSEUDO = 4'd9, ST_TCP_IP_CHECKSUM = 4'd10,
-               ST_TCP_TX_PSEUDO = 4'd11;
+               ST_TCP_TX_PSEUDO = 4'd11, ST_RBCP_ACCESS = 4'd12,
+               ST_RBCP_WAIT = 4'd13, ST_RBCP_WAIT_TX = 4'd14,
+               ST_BUILD_RBCP = 4'd15;
+    localparam ST_RBCP_IP_CHECKSUM = 5'd16;
     localparam TCP_LISTEN = 2'd0, TCP_SYN_RCVD = 2'd1,
                TCP_ESTABLISHED = 2'd2, TCP_LAST_ACK = 2'd3;
     localparam [15:0] TCP_PORT = 16'd24;
+    localparam [15:0] RBCP_PORT = 16'd4660;
     localparam [31:0] TCP_ISN = 32'h5248_4541;
     localparam [15:0] TCP_PAYLOAD_BYTES = 16'd1460;
-    reg [3:0] state;
+    reg [4:0] state;
     reg [1:0] tcp_state;
     reg [ADDR_WIDTH-1:0] index;
     reg [ADDR_WIDTH-1:0] build_len;
@@ -74,6 +86,14 @@ module arp_icmp_server #(
     reg [7:0] ip_high, icmp_high, tcp_rx_high;
     reg [15:0] icmp_reply_checksum;
     reg [7:0] build_data;
+
+    reg [15:0] udp_src_port, udp_dst_port, udp_length;
+    reg [7:0] rbcp_version, rbcp_command, rbcp_id, rbcp_length;
+    reg [31:0] rbcp_base_addr;
+    reg [7:0] rbcp_data [0:255];
+    reg [7:0] rbcp_index;
+    reg rbcp_failed;
+    reg [15:0] rbcp_ip_id, rbcp_reply_ip_checksum;
 
     reg [15:0] tcp_src_port, tcp_dst_port, tcp_window;
     reg [31:0] tcp_rx_seq, tcp_rx_ack;
@@ -231,6 +251,15 @@ module arp_icmp_server #(
         tcp_dst_port == TCP_PORT && tcp_rx_offset[7:4] >= 5 &&
         {10'd0, tcp_rx_offset[7:4], 2'b00} <= tcp_rx_len &&
         tcp_checksum_ok;
+    wire valid_rbcp = eth_type == 16'h0800 && rx_frame_len >= 50 &&
+        ip_vihl == 8'h45 && ip_total_len >= 16'd36 &&
+        ip_total_len <= rx_frame_len - 14 && ip_fragment[13:0] == 0 &&
+        ip_protocol == 8'd17 && ip_target == LOCAL_IP && ip_sum == 16'hFFFF &&
+        udp_dst_port == RBCP_PORT && udp_length == ip_total_len - 16'd20 &&
+        rbcp_version == 8'hff && rbcp_length != 0 &&
+        (rbcp_command == 8'h80 || rbcp_command == 8'hc0) &&
+        ((rbcp_command == 8'h80 && udp_length == 16'd16 + rbcp_length) ||
+         (rbcp_command == 8'hc0 && udp_length == 16'd16));
     wire tcp_peer_match = src_mac == peer_mac && src_ip == peer_ip &&
         tcp_src_port == peer_port;
     wire [31:0] tcp_flight_bytes = snd_nxt - snd_una;
@@ -262,6 +291,19 @@ module arp_icmp_server #(
                 7: checksum_word = LOCAL_IP[15:0];
                 8: checksum_word = peer_ip[31:16];
                 default: checksum_word = peer_ip[15:0];
+            endcase
+        end else if (state == ST_RBCP_IP_CHECKSUM) begin
+            case (index)
+                0: checksum_word = 16'h4500;
+                1: checksum_word = 16'd36 + rbcp_length;
+                2: checksum_word = rbcp_ip_id;
+                3: checksum_word = 16'h4000;
+                4: checksum_word = 16'h4011;
+                5: checksum_word = 16'h0000;
+                6: checksum_word = LOCAL_IP[31:16];
+                7: checksum_word = LOCAL_IP[15:0];
+                8: checksum_word = src_ip[31:16];
+                default: checksum_word = src_ip[15:0];
             endcase
         end else if (state == ST_TCP_TX_PSEUDO) begin
             case (index)
@@ -384,6 +426,60 @@ module arp_icmp_server #(
                 51: build_data = tcp_build_checksum[7:0];
                 default: build_data = tcp_segment_byte(index - 16'd34);
             endcase
+        end else if (state == ST_BUILD_RBCP) begin
+            case (index)
+                0: build_data = src_mac[47:40];
+                1: build_data = src_mac[39:32];
+                2: build_data = src_mac[31:24];
+                3: build_data = src_mac[23:16];
+                4: build_data = src_mac[15:8];
+                5: build_data = src_mac[7:0];
+                6: build_data = LOCAL_MAC[47:40];
+                7: build_data = LOCAL_MAC[39:32];
+                8: build_data = LOCAL_MAC[31:24];
+                9: build_data = LOCAL_MAC[23:16];
+                10: build_data = LOCAL_MAC[15:8];
+                11: build_data = LOCAL_MAC[7:0];
+                12: build_data = 8'h08;
+                13: build_data = 8'h00;
+                14: build_data = 8'h45;
+                15: build_data = 8'h00;
+                16: build_data = (16'd36 + rbcp_length) >> 8;
+                17: build_data = 16'd36 + rbcp_length;
+                18: build_data = rbcp_ip_id[15:8];
+                19: build_data = rbcp_ip_id[7:0];
+                20: build_data = 8'h40;
+                21: build_data = 8'h00;
+                22: build_data = 8'd64;
+                23: build_data = 8'd17;
+                24: build_data = rbcp_reply_ip_checksum[15:8];
+                25: build_data = rbcp_reply_ip_checksum[7:0];
+                26: build_data = LOCAL_IP[31:24];
+                27: build_data = LOCAL_IP[23:16];
+                28: build_data = LOCAL_IP[15:8];
+                29: build_data = LOCAL_IP[7:0];
+                30: build_data = src_ip[31:24];
+                31: build_data = src_ip[23:16];
+                32: build_data = src_ip[15:8];
+                33: build_data = src_ip[7:0];
+                34: build_data = RBCP_PORT[15:8];
+                35: build_data = RBCP_PORT[7:0];
+                36: build_data = udp_src_port[15:8];
+                37: build_data = udp_src_port[7:0];
+                38: build_data = (16'd16 + rbcp_length) >> 8;
+                39: build_data = 16'd16 + rbcp_length;
+                40, 41: build_data = 8'h00;
+                42: build_data = 8'hff;
+                43: build_data = rbcp_command |
+                    (rbcp_failed ? 8'h09 : 8'h08);
+                44: build_data = rbcp_id;
+                45: build_data = rbcp_length;
+                46: build_data = rbcp_base_addr[31:24];
+                47: build_data = rbcp_base_addr[23:16];
+                48: build_data = rbcp_base_addr[15:8];
+                49: build_data = rbcp_base_addr[7:0];
+                default: build_data = rbcp_data[index - 16'd50];
+            endcase
         end
     end
 
@@ -415,6 +511,13 @@ module arp_icmp_server #(
             ip_sum <= 0; icmp_sum <= 0; tcp_rx_sum <= 0;
             ip_high <= 0; icmp_high <= 0; tcp_rx_high <= 0;
             icmp_reply_checksum <= 0;
+            udp_src_port <= 0; udp_dst_port <= 0; udp_length <= 0;
+            rbcp_version <= 0; rbcp_command <= 0; rbcp_id <= 0;
+            rbcp_length <= 0; rbcp_base_addr <= 0; rbcp_index <= 0;
+            rbcp_failed <= 0; rbcp_ip_id <= 0;
+            rbcp_reply_ip_checksum <= 0;
+            rbcp_start <= 0; rbcp_req_addr <= 0; rbcp_req_wd <= 0;
+            rbcp_req_we <= 0;
             tcp_src_port <= 0; tcp_dst_port <= 0; tcp_window <= 0;
             tcp_rx_seq <= 0; tcp_rx_ack <= 0; tcp_rx_offset <= 0;
             tcp_rx_flags <= 0; peer_mac <= 0; peer_ip <= 0; peer_port <= 0;
@@ -434,6 +537,7 @@ module arp_icmp_server #(
             rx_frame_consume <= 0;
             replay_ack_valid <= 0;
             app_session_start <= 0;
+            rbcp_start <= 0;
             app_tcp_open_source <= tcp_state == TCP_ESTABLISHED;
             if (tcp_state == TCP_LISTEN || snd_una == snd_nxt) begin
                 rto_counter <= 0;
@@ -457,6 +561,9 @@ module arp_icmp_server #(
                         ip_vihl <= 0; ip_protocol <= 0; ip_total_len <= 0;
                         ip_fragment <= 0; ip_target <= 0;
                         icmp_type <= 0; icmp_code <= 0; icmp_old_checksum <= 0;
+                        udp_src_port <= 0; udp_dst_port <= 0; udp_length <= 0;
+                        rbcp_version <= 0; rbcp_command <= 0; rbcp_id <= 0;
+                        rbcp_length <= 0; rbcp_base_addr <= 0;
                         tcp_src_port <= 0; tcp_dst_port <= 0; tcp_window <= 0;
                         tcp_rx_seq <= 0; tcp_rx_ack <= 0; tcp_rx_offset <= 0;
                         tcp_rx_flags <= 0;
@@ -547,6 +654,22 @@ module arp_icmp_server #(
                     if (index == 48 || index == 49)
                         tcp_window <= {tcp_window[7:0], rx_frame_rd_data};
 
+                    if (index == 34 || index == 35)
+                        udp_src_port <= {udp_src_port[7:0], rx_frame_rd_data};
+                    if (index == 36 || index == 37)
+                        udp_dst_port <= {udp_dst_port[7:0], rx_frame_rd_data};
+                    if (index == 38 || index == 39)
+                        udp_length <= {udp_length[7:0], rx_frame_rd_data};
+                    if (index == 42) rbcp_version <= rx_frame_rd_data;
+                    if (index == 43) rbcp_command <= rx_frame_rd_data;
+                    if (index == 44) rbcp_id <= rx_frame_rd_data;
+                    if (index == 45) rbcp_length <= rx_frame_rd_data;
+                    if (index >= 46 && index <= 49)
+                        rbcp_base_addr <= {rbcp_base_addr[23:0], rx_frame_rd_data};
+                    if (ip_protocol == 8'd17 && rbcp_command == 8'h80 &&
+                            index >= 50 && index < 16'd50 + rbcp_length)
+                        rbcp_data[index - 16'd50] <= rx_frame_rd_data;
+
                     if (index >= 14 && index < 34) begin
                         if (!index[0]) ip_high <= rx_frame_rd_data;
                         else ip_sum <= csum_add16(ip_sum, {ip_high, rx_frame_rd_data});
@@ -603,6 +726,11 @@ module arp_icmp_server #(
                                 state <= ST_BUILD_ICMP;
                             end
                         end
+                    end else if (valid_rbcp) begin
+                        rx_frame_consume <= 1'b1;
+                        rbcp_index <= 0;
+                        rbcp_failed <= 1'b0;
+                        state <= ST_RBCP_ACCESS;
                     end else if (valid_tcp) begin
                         rx_frame_consume <= 1;
                         if (tcp_state == TCP_LISTEN && tcp_rx_flags[1] &&
@@ -769,6 +897,62 @@ module arp_icmp_server #(
                             state <= ST_WAIT_RX_RELEASE;
                         else
                             state <= ST_IDLE;
+                    end else begin
+                        index <= index + 1'b1;
+                    end
+                end
+                ST_RBCP_ACCESS: begin
+                    if (rbcp_failed || rbcp_index == rbcp_length) begin
+                        state <= ST_RBCP_WAIT_TX;
+                    end else if (!rbcp_busy) begin
+                        rbcp_req_addr <= rbcp_base_addr + rbcp_index;
+                        rbcp_req_wd <= rbcp_command == 8'h80
+                            ? rbcp_data[rbcp_index] : 8'd0;
+                        rbcp_req_we <= rbcp_command == 8'h80;
+                        rbcp_start <= 1'b1;
+                        state <= ST_RBCP_WAIT;
+                    end
+                end
+                ST_RBCP_WAIT: begin
+                    if (rbcp_done) begin
+                        if (rbcp_error) begin
+                            rbcp_failed <= 1'b1;
+                            state <= ST_RBCP_WAIT_TX;
+                        end else begin
+                            if (rbcp_command == 8'hc0)
+                                rbcp_data[rbcp_index] <= rbcp_read_data;
+                            rbcp_index <= rbcp_index + 1'b1;
+                            state <= ST_RBCP_ACCESS;
+                        end
+                    end
+                end
+                ST_RBCP_WAIT_TX: begin
+                    if (!tx_buffer_busy) begin
+                        rbcp_ip_id <= rbcp_ip_id + 1'b1;
+                        tcp_calc_sum <= 0;
+                        index <= 0;
+                        state <= ST_RBCP_IP_CHECKSUM;
+                    end
+                end
+                ST_RBCP_IP_CHECKSUM: begin
+                    if (index == 9) begin
+                        rbcp_reply_ip_checksum <=
+                            ~csum_add16(tcp_calc_sum, checksum_word);
+                        build_len <= 16'd50 + rbcp_length;
+                        index <= 0;
+                        state <= ST_BUILD_RBCP;
+                    end else begin
+                        tcp_calc_sum <= csum_add16(tcp_calc_sum,
+                            checksum_word);
+                        index <= index + 1'b1;
+                    end
+                end
+                ST_BUILD_RBCP: begin
+                    tx_mem[index] <= build_data;
+                    if (index == build_len - 1'b1) begin
+                        tx_frame_len <= build_len;
+                        tx_request_toggle <= ~tx_request_toggle;
+                        state <= ST_IDLE;
                     end else begin
                         index <= index + 1'b1;
                     end

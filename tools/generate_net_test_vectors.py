@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate independent Ethernet ARP/ICMP/TCP test vectors using Python zlib."""
+"""Generate independent Ethernet ARP/ICMP/TCP/RBCP vectors using Python zlib."""
 import argparse
 import ipaddress
 import struct
@@ -44,6 +44,11 @@ def tcp(src_ip, dst_ip, src_port, dst_port, seq, ack, flags, window, payload=b""
     pseudo = src_ip + dst_ip + struct.pack("!BBH", 0, 6, len(segment))
     csum = checksum(pseudo + segment)
     return segment[:16] + struct.pack("!H", csum) + segment[18:]
+
+
+def udp(src_port, dst_port, payload):
+    # UDP checksum zero is valid for IPv4 and matches the initial RBCP RTL.
+    return struct.pack("!HHHH", src_port, dst_port, 8 + len(payload), 0) + payload
 
 
 def write_hex(path, data):
@@ -118,6 +123,33 @@ def main():
         LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP, 24, host_port, fpga_isn + 1,
         host_seq + 1, 0x18, 0x8000, 5, benchmark_payload(0))
 
+    rbcp_port = 4660
+    rbcp_host_port = 50000
+    rbcp_addr = 0x40000010
+    rbcp_payload = b"\x12\x34\x56"
+
+    def rbcp_header(command, ident, length):
+        return struct.pack("!BBBBI", 0xff, command, ident, length, rbcp_addr)
+
+    def udp_frame(src_mac, dst_mac, src_ip, dst_ip, src_port, dst_port,
+                  payload, ident):
+        datagram = udp(src_port, dst_port, payload)
+        return dst_mac + src_mac + b"\x08\x00" + ip_packet(
+            src_ip, dst_ip, datagram, ident=ident, protocol=17)
+
+    rbcp_write_request = udp_frame(
+        HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP, rbcp_host_port, rbcp_port,
+        rbcp_header(0x80, 0x5a, len(rbcp_payload)) + rbcp_payload, 0x3000)
+    rbcp_write_reply = udp_frame(
+        LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP, rbcp_port, rbcp_host_port,
+        rbcp_header(0x88, 0x5a, len(rbcp_payload)) + rbcp_payload, 1)
+    rbcp_read_request = udp_frame(
+        HOST_MAC, LOCAL_MAC, HOST_IP, LOCAL_IP, rbcp_host_port, rbcp_port,
+        rbcp_header(0xc0, 0x5b, len(rbcp_payload)), 0x3001)
+    rbcp_read_reply = udp_frame(
+        LOCAL_MAC, HOST_MAC, LOCAL_IP, HOST_IP, rbcp_port, rbcp_host_port,
+        rbcp_header(0xc8, 0x5b, len(rbcp_payload)) + rbcp_payload, 2)
+
     for name, data in {
         "arp_request.hex": wire(arp_request),
         "arp_reply.hex": wire(arp_reply),
@@ -134,6 +166,10 @@ def main():
         "tcp_data1.hex": wire(tcp_data1),
         "tcp_synack_reconnect.hex": wire(tcp_synack_reconnect),
         "tcp_data_reconnect.hex": wire(tcp_data_reconnect),
+        "rbcp_write_request.hex": wire(rbcp_write_request),
+        "rbcp_write_reply.hex": wire(rbcp_write_reply),
+        "rbcp_read_request.hex": wire(rbcp_read_request),
+        "rbcp_read_reply.hex": wire(rbcp_read_reply),
     }.items():
         write_hex(args.output / name, data)
 

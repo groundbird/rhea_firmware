@@ -26,28 +26,20 @@ module axku042_open_net_test_top (
     BUFG u_bufg_clk200 (.I(clk200_ibuf), .O(clk200));
 
     wire tcp_open_ack, tcp_tx_full;
-    reg tcp_tx_wr = 1'b0;
-    reg [29:0] app_word_index = 0;
-    reg [1:0] app_byte_select = 0;
-    wire [7:0] tcp_txd = app_byte_select == 2'd0
-        ? app_word_index[7:0] : app_byte_select == 2'd1
-        ? app_word_index[15:8] : app_byte_select == 2'd2
-        ? app_word_index[23:16] : {2'b00, app_word_index[29:24]};
+    wire tcp_tx_wr;
+    wire [7:0] tcp_txd;
+    wire [31:0] rbcp_addr;
+    wire [7:0] rbcp_wd, rbcp_rd;
+    wire rbcp_we, rbcp_re, rbcp_ack;
 
-    always @(posedge clk200) begin
-        if (!FPGA_RSETN || !tcp_open_ack) begin
-            tcp_tx_wr <= 1'b0;
-            app_word_index <= 0;
-            app_byte_select <= 0;
-        end else begin
-            tcp_tx_wr <= ~tcp_tx_full;
-            if (tcp_tx_wr) begin
-                if (app_byte_select == 2'd3)
-                    app_word_index <= app_word_index + 1'b1;
-                app_byte_select <= app_byte_select + 1'b1;
-            end
-        end
-    end
+    sitcp_benchmark u_benchmark (
+        .clk(clk200), .rst(~FPGA_RSETN), .tcp_open_ack(tcp_open_ack),
+        .tcp_close_req(1'b0), .tcp_error(1'b0),
+        .tcp_tx_full(tcp_tx_full), .tcp_tx_wr(tcp_tx_wr),
+        .tcp_tx_data(tcp_txd), .rbcp_addr(rbcp_addr), .rbcp_wd(rbcp_wd),
+        .rbcp_we(rbcp_we), .rbcp_re(rbcp_re), .rbcp_ack(rbcp_ack),
+        .rbcp_rd(rbcp_rd)
+    );
 
     axku042_open_net_core u_open_net (
         .clk_200(clk200), .rst(~FPGA_RSETN), .force_defaultn(1'b0),
@@ -57,8 +49,9 @@ module axku042_open_net_test_top (
         .phy_mdc(PHY_MDC), .phy_mdio(PHY_MDIO),
         .tcp_open_ack(tcp_open_ack), .tcp_tx_full(tcp_tx_full),
         .tcp_tx_wr(tcp_tx_wr), .tcp_txd(tcp_txd),
-        .rbcp_act(), .rbcp_addr(), .rbcp_wd(), .rbcp_we(), .rbcp_re(),
-        .rbcp_ack(1'b0), .rbcp_rd(8'd0),
+        .rbcp_act(), .rbcp_addr(rbcp_addr), .rbcp_wd(rbcp_wd),
+        .rbcp_we(rbcp_we), .rbcp_re(rbcp_re),
+        .rbcp_ack(rbcp_ack), .rbcp_rd(rbcp_rd),
         .iic_main_sda(), .iic_main_scl()
     );
 endmodule

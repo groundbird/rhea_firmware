@@ -75,7 +75,8 @@ if { $::argc > 0 } {
 set orig_proj_dir "[file normalize "$origin_dir/rhea-fpga"]"
 
 # Create project
-create_project ${_xil_proj_name_} ./${_xil_proj_name_} -part xcku040-ffva1156-2-i
+create_project ${_xil_proj_name_} ./${_xil_proj_name_} \
+  -part xcku040-ffva1156-2-i -force
 
 # Set the directory path for the new project
 set proj_dir [get_property directory [current_project]]
@@ -137,6 +138,7 @@ set obj [get_filesets sources_1]
 set network_files [list \
  [file normalize "${origin_dir}/src/net/gmii_rx_frame.v"] \
  [file normalize "${origin_dir}/src/net/gmii_tx_frame.v"] \
+ [file normalize "${origin_dir}/src/net/rbcp_cdc_bridge.v"] \
  [file normalize "${origin_dir}/src/net/tcp_tx_async_adapter.v"] \
  [file normalize "${origin_dir}/src/net/tcp_tx_replay_buffer.v"] \
  [file normalize "${origin_dir}/src/net/arp_icmp_server.v"] \

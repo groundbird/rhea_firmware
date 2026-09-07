@@ -183,6 +183,10 @@ module axku042_open_net_core (
     wire replay_tcp_tx_full, protocol_tcp_open, protocol_session_start;
     wire replay_tx_wr;
     wire [7:0] replay_tx_data;
+    wire rbcp_start, rbcp_busy, rbcp_done, rbcp_error;
+    wire [31:0] rbcp_req_addr;
+    wire [7:0] rbcp_req_wd, rbcp_read_data;
+    wire rbcp_req_we;
 
     tcp_tx_async_adapter u_tx_cdc (
         .wr_clk(clk_200), .wr_rst(rst_p1),
@@ -204,6 +208,16 @@ module axku042_open_net_core (
         .dropped_frames()
     );
 
+    rbcp_cdc_bridge u_rbcp_cdc (
+        .src_clk(rxc), .src_rst(rx_reset), .src_start(rbcp_start),
+        .src_addr(rbcp_req_addr), .src_wd(rbcp_req_wd),
+        .src_we(rbcp_req_we), .src_busy(rbcp_busy), .src_done(rbcp_done),
+        .src_error(rbcp_error), .src_rd(rbcp_read_data),
+        .dst_clk(clk_200), .dst_rst(rst_p1), .rbcp_act(rbcp_act),
+        .rbcp_addr(rbcp_addr), .rbcp_wd(rbcp_wd), .rbcp_we(rbcp_we),
+        .rbcp_re(rbcp_re), .rbcp_ack(rbcp_ack), .rbcp_rd(rbcp_rd)
+    );
+
     arp_icmp_server #(
         .LOCAL_MAC(LOCAL_MAC), .LOCAL_IP(LOCAL_IP), .USE_REPLAY_BUFFER(1)
     ) u_protocol (
@@ -218,7 +232,11 @@ module axku042_open_net_core (
         .tcp_segments(), .tcp_retransmissions(), .app_tx_wr(replay_tx_wr),
         .app_tx_data(replay_tx_data), .app_tcp_tx_full(replay_tcp_tx_full),
         .app_tcp_open(protocol_tcp_open),
-        .app_session_start(protocol_session_start)
+        .app_session_start(protocol_session_start),
+        .rbcp_start(rbcp_start), .rbcp_req_addr(rbcp_req_addr),
+        .rbcp_req_wd(rbcp_req_wd), .rbcp_req_we(rbcp_req_we),
+        .rbcp_busy(rbcp_busy), .rbcp_done(rbcp_done),
+        .rbcp_error(rbcp_error), .rbcp_read_data(rbcp_read_data)
     );
 
     gmii_tx_frame u_tx_frame (
@@ -229,13 +247,7 @@ module axku042_open_net_core (
         .gmii_tx_er(gmii_tx_er), .busy()
     );
 
-    // RBCP and persistent configuration are added in the next integration
-    // stage. Safe inactive values prevent unintended accesses in RHEA.
-    assign rbcp_act = 1'b0;
-    assign rbcp_addr = 32'd0;
-    assign rbcp_wd = 8'd0;
-    assign rbcp_we = 1'b0;
-    assign rbcp_re = 1'b0;
+    // Persistent configuration is not yet implemented; use static defaults.
     assign iic_main_sda = 1'bz;
     assign iic_main_scl = 1'b1;
     assign status = {12'd0, tcp_open_ack, tcp_tx_full, rbcp_act, mmcm_locked};
