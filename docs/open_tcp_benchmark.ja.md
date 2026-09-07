@@ -117,6 +117,19 @@ bus error 0、timeout 0、retry 0となり、各回約0.74秒で完了した。A
 不一致を示すが、RBCP転送エラーとは分離できた。通常registerとADC/DAC SPIを各100回読む回帰試験も全件成功した。
 最終8チャンネル実装はWNS +0.149 ns、WHS +0.030 nsでtiming violation 0である。
 
+2026-09-08の取得スクリプト試験では、外部clock domainの最後のread dataを保持するresponse CDCと、
+内部registerのread dataを常時ORしていたため、SPIの`0x26`によりチャンネル数`0x08`が`0x2e`、
+Clock Wizard status `0x01000000`が`0x27262626`へ変化する順序依存を確認した。チャンネル数を46と
+誤認した`measure_tod.py`は、8チャンネル版に存在しない`0x41000800`への書き込みでbus errorになっていた。
+ACK元でread dataを選択するmuxへ変更し、network側RBCP CDCもtoggle検出の1 clock後にpayloadを使うようにした。
+内部、外部、SPI readを交互に行う8,000アクセスでは、値不一致、bus error、timeout、retryがすべて0となった。
+`health_check.py`相当の3,374アクセスも同じくRBCP error 0で完了した。
+
+同じbitstreamで`measure_tod.py`を1チャンネル、1 kSPS、100 sampleで実行し、21 byteのheader packetと
+100 data packet、timestamp 0–99を確認した。`measure_swp.py`は1チャンネル、0/1 MHzの2点で実行し、
+各点で周波数header 1 packetとdata 10 packet、timestamp 1–10を確認した。全123 packetのheader、footerと
+ファイル長は正常だった。この最終8チャンネル実装はWNS +0.035 ns、WHS +0.030 nsでtiming violation 0である。
+
 8チャンネルIQ formatterを119 byte/packet、`accumulation=635`に設定した実データ経路では、
 修正後の5秒試験では187,402,680 byte、**299.846 Mbps**を受信した。これは200 MHz / 635 × 119 byteの
 source rate 299.843 Mbpsと一致する。1,889,755 packetのheader、footer、40 bit timestamp連続性を検査して
@@ -134,7 +147,7 @@ IQ active、FIFO error 0だった。`accumulation=645`の約295 Mbpsでは安全
 | FF | 37,284 | 261,819 | 2,004 |
 | RAMB36 / RAMB18 | 120 / 20 | 457 / 1 | 8 / 0 |
 | DSP | 102 | 550 | 0 |
-| post-route WNS / WHS | +0.149 / +0.030 ns | +0.036 / +0.030 ns | - |
+| post-route WNS / WHS | +0.035 / +0.030 ns | +0.036 / +0.030 ns | - |
 
 両実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
 RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す送信経路にCritical/Warning判定が残る。

@@ -1514,7 +1514,17 @@ begin
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
-      rbcp_rd  <= rbcp_rd_int  or rbcp_rd_ext_buf;
+      -- The response CDC intentionally holds its last read payload until the
+      -- next external response.  Select the payload belonging to the active
+      -- acknowledgement; ORing both paths would leak that held value into a
+      -- later internal-register read.
+      if rbcp_ack_int = '1' then
+        rbcp_rd <= rbcp_rd_int;
+      elsif rbcp_ack_ext_buf = '1' then
+        rbcp_rd <= rbcp_rd_ext_buf;
+      else
+        rbcp_rd <= (others => '0');
+      end if;
     end if;
   end process;
 
@@ -1549,8 +1559,13 @@ begin
   process(clk_int_200)
   begin
     if rising_edge(clk_int_200) then
-      rbcp_rd_int  <= rbcp_rd_int_info or
-                      rbcp_rd_int_aman;
+      if rbcp_ack_int_info = '1' then
+        rbcp_rd_int <= rbcp_rd_int_info;
+      elsif rbcp_ack_int_aman = '1' then
+        rbcp_rd_int <= rbcp_rd_int_aman;
+      else
+        rbcp_rd_int <= (others => '0');
+      end if;
     end if;
   end process;
 

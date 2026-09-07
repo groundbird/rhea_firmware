@@ -46,6 +46,7 @@ module rbcp_cdc_bridge #(
     (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
     reg [7:0] response_rd_meta, response_rd_sync;
     reg response_seen;
+    reg response_pending;
 
     always @(posedge src_clk) begin
         if (src_rst) begin
@@ -60,6 +61,7 @@ module rbcp_cdc_bridge #(
             response_rd_meta <= 8'd0;
             response_rd_sync <= 8'd0;
             response_seen <= 1'b0;
+            response_pending <= 1'b0;
             src_busy <= 1'b0;
             src_done <= 1'b0;
             src_error <= 1'b0;
@@ -72,12 +74,19 @@ module rbcp_cdc_bridge #(
             response_rd_meta <= response_rd_hold;
             response_rd_sync <= response_rd_meta;
             src_done <= 1'b0;
-            if (src_busy && response_sync != response_seen) begin
+            if (src_busy && response_pending) begin
+                response_pending <= 1'b0;
                 response_seen <= response_sync;
                 src_error <= response_error_sync;
                 src_rd <= response_rd_sync;
                 src_busy <= 1'b0;
                 src_done <= 1'b1;
+            end else if (src_busy && response_sync != response_seen) begin
+                // The response payload crosses independently from the toggle.
+                // Give every payload bit one more source clock to settle after
+                // the synchronized toggle becomes visible.
+                response_seen <= response_sync;
+                response_pending <= 1'b1;
             end else if (src_start && !src_busy) begin
                 req_addr_hold <= src_addr;
                 req_wd_hold <= src_wd;
@@ -97,6 +106,7 @@ module rbcp_cdc_bridge #(
     (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
     reg req_we_meta, req_we_sync;
     reg req_seen;
+    reg request_pending;
     reg access_active;
     reg timeout_quarantine;
     reg [31:0] timeout_count;
@@ -112,6 +122,7 @@ module rbcp_cdc_bridge #(
             req_we_meta <= 1'b0;
             req_we_sync <= 1'b0;
             req_seen <= 1'b0;
+            request_pending <= 1'b0;
             response_toggle <= 1'b0;
             response_error_hold <= 1'b0;
             response_rd_hold <= 8'd0;
@@ -167,7 +178,9 @@ module rbcp_cdc_bridge #(
                 end else begin
                     timeout_count <= timeout_count + 1'b1;
                 end
-            end else if (req_sync != req_seen) begin
+            end else if (request_pending) begin
+                request_pending <= 1'b0;
+                req_seen <= req_sync;
                 rbcp_addr <= req_addr_sync;
                 rbcp_wd <= req_wd_sync;
                 rbcp_we <= req_we_sync;
@@ -175,6 +188,10 @@ module rbcp_cdc_bridge #(
                 rbcp_act <= 1'b1;
                 timeout_count <= 32'd0;
                 access_active <= 1'b1;
+            end else if (req_sync != req_seen) begin
+                // As on the response path, wait one destination clock after
+                // toggle detection before consuming the synchronized payload.
+                request_pending <= 1'b1;
             end
         end
     end
