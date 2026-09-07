@@ -209,6 +209,6 @@ set_property IOSTANDARD LVCMOS18 [get_ports pg_c2m]
 # Keep ADC/DAC and system/ethernet clock families asynchronous
 # -----------------------------------------------------------------------------
 set_clock_groups -asynchronous \
-    -group [get_clocks clk_ab_p] \
+    -group [get_clocks -include_generated_clocks clk_ab_p] \
     -group [get_clocks -include_generated_clocks sysclk_200] \
     -group [get_clocks -include_generated_clocks rgmii_rxc]

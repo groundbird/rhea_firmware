@@ -99,16 +99,27 @@ ADC入力では、ビットごとのIDDRE1 reset FFがVivadoに統合されて�
 FPGA内のRX MMCMでRXCを45度（125 MHzで1.0 ns）遅らせ、DDR sampling位置をdata eye中央付近へ移した。
 また、実装ごとのglobal clock配置変動を避けるため、AXKU042用BUFG位置を固定した。
 
-2026-09-07の8チャンネル再ビルドでは500 pingすべてに応答し、packet loss 0%、FPGAの受信FCS error 0、
+2026-09-07の最初の8チャンネル再ビルドでは500 pingすべてに応答し、packet loss 0%、FPGAの受信FCS error 0、
 受信drop 0だった。400回のRBCP試験（通常register、DAC内部register、ADC SPI、DAC SPIを各100回）も
-bus error、timeout、retryすべて0だった。実際の`health_check.py diagnosis`は2回とも約1.30秒で完了した。
-約0.8%の内部bus ACK timeoutは再試行で回復し、Ethernet受信FCS errorは増えなかった。SPI以外のDAC内部
-registerでも発生するため、残る問題はRGMIIではなくRHEA内部のRBCP応答経路にある。ACK timeoutを
-100 msから5 msへ短縮し、正常な約0.3 msのSPIアクセスを保ったまま、欠落時の待ち時間を抑えた。
+bus error、timeout、retryすべて0だった。一方、実際の`health_check.py diagnosis`では約3,374アクセス中
+26–29件、約0.8%のbus ACK timeoutが発生し、再試行を含めて約1.30秒かかっていた。
+
+同一アドレスだけの反復では再現せず、内部register、DAC register、SPIなど異なるアドレスと応答時間を
+切り替えた場合だけ再現した。RHEA内で要求とACKを別々の非同期FIFOへ入れていた経路を、ペイロードを
+安定保持するtoggle CDCへ置き換えた。制御toggleの検出後にさらに1 destination clock待ってからaddress、
+write data、read dataを使い、bundled dataの各bitが2段同期器を通過する時間を確保した。さらに、情報registerと
+Clock Wizard registerは内部clock domainでACKされるため、これらの要求を外部RHEA clock domainへ送らないようにした。
+AXKU042のXDCでは`clk_ab_p`からの生成clockも非同期clock groupへ含めた。
+
+修正版では、異なる内部/外部/SPIアドレスを組み合わせたread-only 32,000要求とread/write 32,000要求を
+再試行なしで実行し、bus error 0だった。`health_check.py diagnosis`と同じ処理も3回連続で各3,374アクセス、
+bus error 0、timeout 0、retry 0となり、各回約0.74秒で完了した。ADC/DACのデバイス診断値は引き続き
+不一致を示すが、RBCP転送エラーとは分離できた。通常registerとADC/DAC SPIを各100回読む回帰試験も全件成功した。
+最終8チャンネル実装はWNS +0.149 ns、WHS +0.030 nsでtiming violation 0である。
 
 8チャンネルIQ formatterを119 byte/packet、`accumulation=635`に設定した実データ経路では、
-5秒間に187,401,220 byte、**299.843 Mbps**を受信した。これは200 MHz / 635 × 119 byteの
-source rateと一致する。1,889,730 packetのheader、footer、40 bit timestamp連続性を検査して
+修正後の5秒試験では187,402,680 byte、**299.846 Mbps**を受信した。これは200 MHz / 635 × 119 byteの
+source rate 299.843 Mbpsと一致する。1,889,755 packetのheader、footer、40 bit timestamp連続性を検査して
 error 0、送信後もIQ active、FIFO error 0だった。
 
 同じ設定を長時間続けると、TCP ACK処理による短いbackpressureでRHEAの送信FIFOがprogrammable-fullに達し、
@@ -119,11 +130,11 @@ IQ active、FIFO error 0だった。`accumulation=645`の約295 Mbpsでは安全
 
 | 項目 | RHEA 8チャンネル | RHEA 64チャンネル | 独自network core（64ch内） |
 |---|---:|---:|---:|
-| LUT | 27,003 | 88,196 | 3,479 |
-| FF | 35,433 | 261,819 | 1,750 |
-| RAMB36 / RAMB18 | 121 / 48 | 457 / 1 | 8 / 0 |
+| LUT | 26,863 | 88,196 | 3,621 |
+| FF | 37,284 | 261,819 | 2,004 |
+| RAMB36 / RAMB18 | 120 / 20 | 457 / 1 | 8 / 0 |
 | DSP | 102 | 550 | 0 |
-| post-route WNS / WHS | +0.226 / +0.030 ns | +0.036 / +0.030 ns | - |
+| post-route WNS / WHS | +0.149 / +0.030 ns | +0.036 / +0.030 ns | - |
 
 両実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
 RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す送信経路にCritical/Warning判定が残る。
@@ -132,8 +143,8 @@ RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す
 
 通常ソースのチャンネル定数は64である。64チャンネルbitstreamは
 `rhea-fpga/rhea-fpga.runs/impl_1/rhea.bit`、独立8チャンネルbitstreamは
-`rhea-fpga-8ch/rhea-fpga-8ch.runs/impl_1/rhea.bit`に生成される。どちらも最終RBCP CDC版を含む。
-8チャンネル統合版は実機へ書き込み、RGMIIとRBCPの試験まで完了した。
+`rhea-fpga-8ch/rhea-fpga-8ch.runs/impl_1/rhea.bit`に生成される。8チャンネル統合版は最終RBCP CDC版を
+実機へ書き込み、RGMII、RBCP、IQ転送の試験まで完了した。64チャンネルbitstreamは同じソースから再生成が必要である。
 
 独自network coreのread-only診断windowはRBCP `0xffff_ff00`から32 byteである。各値は
 big-endian 32 bitで、順に受信正常frame、受信FCS error frame、受信drop frame、ARP reply、
@@ -142,6 +153,12 @@ ICMP reply、非対応frame、応答drop、TCP segmentを返す。
 ## 再現方法
 
 管理Docker内でプロジェクトを作成・ビルドする。
+
+RBCP CDCとnetwork coreのRTL回帰試験を実行する。
+
+```bash
+src/net/tb/run_net_tb.sh
+```
 
 ```bash
 vivado -mode batch -nolog -nojournal \
@@ -210,8 +227,7 @@ python3 tools/rhea_stream_benchmark.py \
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
 200 MHzのSiTCP互換送信境界、RBCP、8/64チャンネルRHEAの配置配線までは完了した。
 
-次段では64チャンネル版でも同じ実データ試験を行い、長時間連続転送を確認する。
-RHEA内部で約0.8%残るRBCP ACK欠落も追跡する。
+次段では64チャンネル版を最終RBCP CDC版で再生成し、同じ実データ試験と長時間連続転送を確認する。
 RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
 並行して接続終了の全経路と重複ACKを強化する。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

@@ -1,36 +1,9 @@
------------------------------------------------------------------------------
--- Company: 
--- Engineer: 
--- 
--- Create Date: 2016/05/20
--- Design Name: 
--- Module Name: rbcp_transfer - Behavioral
--- Project Name: 
--- Target Devices: 
--- Tool Versions: 
--- Description: 
--- 
--- Dependencies: 
--- 
--- Revision:
--- Revision 0.01 - File Created
--- Additional Comments:
--- 
------------------------------------------------------------------------------
-
-
 library IEEE;
 use IEEE.STD_LOGIC_1164.all;
 
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
---use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
-
+-- Return the external RBCP acknowledgement and read data to the internal
+-- clock domain. External slaves emit a one-cycle acknowledgement; the toggle
+-- preserves it until the internal domain observes it.
 entity rbcp_transfer_to_sitcp is
   port(
     rst     : in  std_logic;
@@ -42,42 +15,67 @@ entity rbcp_transfer_to_sitcp is
     ack_int : out std_logic);
 end entity rbcp_transfer_to_sitcp;
 
-
 architecture Behavioral of rbcp_transfer_to_sitcp is
+  signal ack_toggle : std_logic := '0';
+  signal ack_seen   : std_logic := '0';
+  signal ack_pending : std_logic := '0';
+  signal rd_hold    : std_logic_vector(7 downto 0) := (others => '0');
 
-  component fifo_rbcp_to_sitcp is
-    port (
-      rst    : in  std_logic;
-      wr_clk : in  std_logic;
-      rd_clk : in  std_logic;
-      -- rd(8)
-      din    : in  std_logic_vector(7 downto 0);
-      -- ack
-      wr_en  : in  std_logic;
-      rd_en  : in  std_logic;
-      dout   : out std_logic_vector(7 downto 0);
-      full   : out std_logic;
-      empty  : out std_logic;
-      valid  : out std_logic);
-  end component fifo_rbcp_to_sitcp;
-
-  signal empty : std_logic;
-  signal dout  : std_logic_vector(7 downto 0);
-  signal valid : std_logic;
-
+  attribute ASYNC_REG : string;
+  attribute SHREG_EXTRACT : string;
+  signal ack_meta, ack_sync : std_logic := '0';
+  signal rd_meta, rd_sync : std_logic_vector(7 downto 0) := (others => '0');
+  attribute ASYNC_REG of ack_meta : signal is "TRUE";
+  attribute ASYNC_REG of ack_sync : signal is "TRUE";
+  attribute ASYNC_REG of rd_meta : signal is "TRUE";
+  attribute ASYNC_REG of rd_sync : signal is "TRUE";
+  attribute SHREG_EXTRACT of ack_meta : signal is "NO";
+  attribute SHREG_EXTRACT of ack_sync : signal is "NO";
+  attribute SHREG_EXTRACT of rd_meta : signal is "NO";
+  attribute SHREG_EXTRACT of rd_sync : signal is "NO";
 begin
+  Source_Response : process(clk_ext)
+  begin
+    if rising_edge(clk_ext) then
+      if rst = '1' then
+        ack_toggle <= '0';
+        rd_hold <= (others => '0');
+      elsif ack_ext = '1' then
+        rd_hold <= rd_ext;
+        ack_toggle <= not ack_toggle;
+      end if;
+    end if;
+  end process;
 
-  FIFO_RBCP_to_SiTCP_inst : fifo_rbcp_to_sitcp
-    port map(
-      rst    => rst,
-      wr_clk => clk_ext,
-      rd_clk => clk_int,
-      din    => rd_ext(7 downto 0),
-      wr_en  => ack_ext,
-      rd_en  => "not"(empty),
-      dout   => rd_int(7 downto 0),
-      full   => open,
-      empty  => empty,
-      valid  => ack_int);
-
+  Destination_Response : process(clk_int)
+  begin
+    if rising_edge(clk_int) then
+      if rst = '1' then
+        ack_meta <= '0';
+        ack_sync <= '0';
+        rd_meta <= (others => '0');
+        rd_sync <= (others => '0');
+        ack_seen <= '0';
+        ack_pending <= '0';
+        rd_int <= (others => '0');
+        ack_int <= '0';
+      else
+        ack_meta <= ack_toggle;
+        ack_sync <= ack_meta;
+        rd_meta <= rd_hold;
+        rd_sync <= rd_meta;
+        ack_int <= '0';
+        -- As on the request path, let the bundled read data settle for one
+        -- extra destination cycle after the synchronized toggle changes.
+        if ack_pending = '1' then
+          ack_pending <= '0';
+          rd_int <= rd_sync;
+          ack_int <= '1';
+        elsif ack_sync /= ack_seen then
+          ack_seen <= ack_sync;
+          ack_pending <= '1';
+        end if;
+      end if;
+    end if;
+  end process;
 end architecture Behavioral;

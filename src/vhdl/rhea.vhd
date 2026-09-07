@@ -540,6 +540,9 @@ architecture Behavioral of rhea is
   signal rbcp_addr_int : std_logic_vector(31 downto 0);
   signal rbcp_wd_int   : std_logic_vector( 7 downto 0);
   signal rbcp_rd_int   : std_logic_vector( 7 downto 0);
+  signal rbcp_select_int : std_logic;
+  signal rbcp_we_to_ext  : std_logic;
+  signal rbcp_re_to_ext  : std_logic;
 
   signal rbcp_we_int_info   : std_logic;
   signal rbcp_re_int_info   : std_logic;
@@ -1551,13 +1554,27 @@ begin
     end if;
   end process;
 
+  -- Information registers and the ADC clock manager run on clk_int_200.
+  -- Do not enqueue those accesses in the independent RHEA clock domain: a
+  -- quick sequence of internal acknowledgements can otherwise advance the
+  -- request toggle before clk_ext_200 has observed every transition.
+  rbcp_select_int <= '1' when
+    rbcp_addr(31 downto 2) = x"0000000" & "00" or
+    rbcp_addr = x"00000010" or
+    rbcp_addr = x"00000011" or
+    rbcp_addr = x"00000012" or
+    rbcp_addr(31 downto 24) = x"13"
+    else '0';
+  rbcp_we_to_ext <= rbcp_we and not rbcp_select_int;
+  rbcp_re_to_ext <= rbcp_re and not rbcp_select_int;
+
   RBCP_Transfer_from_SiTCP_inst : rbcp_transfer_from_sitcp
     port map(
       rst      => cpu_reset_i,
       clk_int  => clk_int_200,
       clk_ext  => clk_ext_200,
-      we_int   => rbcp_we,
-      re_int   => rbcp_re,
+      we_int   => rbcp_we_to_ext,
+      re_int   => rbcp_re_to_ext,
       addr_int => rbcp_addr,
       wd_int   => rbcp_wd,
       we_ext   => rbcp_we_ext,

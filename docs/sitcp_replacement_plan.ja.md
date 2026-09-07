@@ -61,14 +61,18 @@ RHEAからvendor SiTCPを置換できるようにした。
 続いてRBCP/UDP port 4660を追加し、最大255 byteのread/writeを200 MHzの既存レジスタバスへ接続した。
 独立vector試験では応答全byte、連続アドレス、CDC、100 ms timeoutと遅延ACK隔離を確認した。AXKU042実機では
 RBCPの識別・統計・enable操作とTCP連番検査を同時に通し、320.644 Mbpsを得た。
-RBCP payloadへ2段同期を追加し、独立coreの新規CDC Criticalを解消した。
+RBCP payloadへ2段同期を追加し、独立coreの新規CDC Criticalを解消した。RHEA統合後に約0.8%発生した
+bus ACK timeoutは、RHEA内部の要求/ACK非同期FIFOを、1要求ずつのtoggle CDCへ置き換えて解消した。
+toggle検出後に1 destination clockのsettling期間を設け、内部clock domainで処理する情報・Clock Wizard
+registerを外部CDCから除外した。8チャンネル実機では異種アドレスのread-only 32,000要求、read/write
+32,000要求、`health_check.py`相当10,122アクセスがbus error、timeout、retryすべて0だった。
 
 64チャンネル初回実装ではtriggerのRBCP threshold read/write decodeが250 MHzを満たさず、WNS -0.784 nsだった。
 read muxを3段pipeline、write decodeをone-hot register化し、trigger単体xsimでchannel 0、37、63のread/writeを確認した。
 最終CDC版の64チャンネルRHEAは88,196 LUT、261,819 FF、457 RAMB36、1 RAMB18、550 DSP、
 setup WNS +0.036 ns、hold WHS +0.030 nsでbitstream生成まで完了した。
-8チャンネル版も通常packageから独立した`--debug-8ch` profileとして残し、26,843 LUT、35,216 FF、
-121 RAMB36、48 RAMB18、102 DSP、setup WNS +0.008 ns、hold WHS +0.030 nsである。
+8チャンネル版も通常packageから独立した`--debug-8ch` profileとして残し、最終RBCP CDC版は26,863 LUT、
+37,284 FF、120 RAMB36、20 RAMB18、102 DSP、setup WNS +0.149 ns、hold WHS +0.030 nsである。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。
