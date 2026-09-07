@@ -111,6 +111,12 @@ registerでも発生するため、残る問題はRGMIIではなくRHEA内部の
 source rateと一致する。1,889,730 packetのheader、footer、40 bit timestamp連続性を検査して
 error 0、送信後もIQ active、FIFO error 0だった。
 
+同じ設定を長時間続けると、TCP ACK処理による短いbackpressureでRHEAの送信FIFOがprogrammable-fullに達し、
+既存`iq_reader`の安全動作によりIQ出力が停止した。`accumulation=656`へ下げた30秒試験では、
+1,088,412,480 byte、**290.243 Mbps**を連続受信し、9,756,051 packetの検査error 0、
+IQ active、FIFO error 0だった。`accumulation=645`の約295 Mbpsでは安全停止が再現したため、
+再現用ツールの既定値は30秒完走済みの656としている。
+
 | 項目 | RHEA 8チャンネル | RHEA 64チャンネル | 独自network core（64ch内） |
 |---|---:|---:|---:|
 | LUT | 27,003 | 88,196 | 3,479 |
@@ -185,10 +191,17 @@ RBCPの識別・統計アクセスとTCPをまとめて測定する。
 python3 tools/sitcp_benchmark.py --seconds 30 --warmup 2
 ```
 
-8チャンネルRHEA統合版のIQ streamを約300 Mbpsに設定し、packet形式とtimestampも検査する。
+8チャンネルRHEA統合版のIQ streamを約290 Mbpsで30秒測定し、packet形式とtimestampも検査する。
 
 ```bash
-python3 tools/rhea_stream_benchmark.py --seconds 5 --warmup 1
+python3 tools/rhea_stream_benchmark.py --seconds 30 --warmup 2
+```
+
+約300 Mbpsの短時間試験には次の設定を使う。
+
+```bash
+python3 tools/rhea_stream_benchmark.py \
+  --accumulation 635 --seconds 5 --warmup 1
 ```
 
 ## 次に必要な機能

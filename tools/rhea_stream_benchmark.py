@@ -87,7 +87,14 @@ def measure(args):
         stop_at = warmup_end + args.seconds
         measured_start = None
         while True:
-            data = tcp.recv(args.chunk_bytes)
+            try:
+                data = tcp.recv(args.chunk_bytes)
+            except socket.timeout as exc:
+                iq_status = transact_retry(rbcp, IQ_STATUS, length=1)[0]
+                fifo_error = transact_retry(rbcp, IQ_FIFO_ERROR, length=1)[0]
+                raise TimeoutError(
+                    f"TCP receive timed out; IQ active: {bool(iq_status)}; "
+                    f"FIFO error: {bool(fifo_error)}") from exc
             now = time.perf_counter()
             if not data:
                 raise ConnectionError("FPGA closed the TCP connection")
@@ -131,7 +138,7 @@ def main():
     parser.add_argument("--port", type=int, default=24)
     parser.add_argument("--rbcp-port", type=int, default=4660)
     parser.add_argument("--channels", type=int, default=8)
-    parser.add_argument("--accumulation", type=int, default=635)
+    parser.add_argument("--accumulation", type=int, default=656)
     parser.add_argument("--seconds", type=float, default=5)
     parser.add_argument("--warmup", type=float, default=1)
     parser.add_argument("--timeout", type=float, default=2)
