@@ -57,14 +57,18 @@ ACKだけが保持領域を解放する。SiTCP相当の1 byte書込み、接続
 Gray code pointerとsession reset完了の往復handshakeにより、切断時のFIFO残留を次接続へ渡さない。
 RST再接続のwire byte照合後、実機で直ちに2回接続して320.631 Mbps、320.641 Mbpsと連番検査PASSを確認した。
 物理層からTCPまでを共通`axku042_open_net_core`へ分離し、`USE_OPEN_NET` genericと`--open-net`で
-RHEAからvendor SiTCPを置換できるようにした。8チャンネルへ一時縮小したRHEA全体では配置配線とbitstream生成が完了し、
-24,785 LUT、33,865 FF、121 RAMB36、28 RAMB18、102 DSP、setup WNS +0.060 ns、hold WHS +0.030 nsだった。
+RHEAからvendor SiTCPを置換できるようにした。
 続いてRBCP/UDP port 4660を追加し、最大255 byteのread/writeを200 MHzの既存レジスタバスへ接続した。
 独立vector試験では応答全byte、連続アドレス、CDC、100 ms timeoutと遅延ACK隔離を確認した。AXKU042実機では
 RBCPの識別・統計・enable操作とTCP連番検査を同時に通し、320.644 Mbpsを得た。
-RBCP追加後の8チャンネルRHEAも26,944 LUT、38,063 FF、121 RAMB36、1 RAMB18、102 DSP、
-setup WNS +0.006 ns、hold WHS +0.031 nsでbitstream生成まで完了した。その後RBCP payloadの2段同期を追加し、
-独立coreの新規CDC Criticalを解消した。ソースは64チャンネルへ戻してあり、最終CDC版のRHEA全体実装は未実施である。
+RBCP payloadへ2段同期を追加し、独立coreの新規CDC Criticalを解消した。
+
+64チャンネル初回実装ではtriggerのRBCP threshold read/write decodeが250 MHzを満たさず、WNS -0.784 nsだった。
+read muxを3段pipeline、write decodeをone-hot register化し、trigger単体xsimでchannel 0、37、63のread/writeを確認した。
+最終CDC版の64チャンネルRHEAは88,196 LUT、261,819 FF、457 RAMB36、1 RAMB18、550 DSP、
+setup WNS +0.036 ns、hold WHS +0.030 nsでbitstream生成まで完了した。
+8チャンネル版も通常packageから独立した`--debug-8ch` profileとして残し、26,843 LUT、35,216 FF、
+121 RAMB36、48 RAMB18、102 DSP、setup WNS +0.008 ns、hold WHS +0.030 nsである。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。

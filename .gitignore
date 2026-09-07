@@ -1,4 +1,8 @@
 rhea-fpga/*
+rhea-fpga-8ch/*
+xsim.dir/
+xvhdl.log
+xvhdl.pb
 ip/**/*.dcp
 ip/**/*.veo
 ip/**/*.vho

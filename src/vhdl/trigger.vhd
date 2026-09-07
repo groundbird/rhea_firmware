@@ -33,9 +33,12 @@ architecture Behavioral of trigger is
   constant trig_pos_offset : natural := 1;
   constant TRIGGER_GROUP_SIZE : natural := 8;
   constant N_TRIGGER_GROUP : natural := (N_CH_TRIG*2 + TRIGGER_GROUP_SIZE - 1) / TRIGGER_GROUP_SIZE;
+  constant RBCP_MUX_GROUP_SIZE : natural := 8;
+  constant N_RBCP_MUX_GROUP : natural := (N_CH_TRIG*2 + RBCP_MUX_GROUP_SIZE - 1) / RBCP_MUX_GROUP_SIZE;
   constant IQ_BUF_WIDTH : natural := 64;
   subtype iq_buf_data is std_logic_vector(IQ_BUF_WIDTH-1 downto 0);
   type iq_buf_data_array is array (N_CH_TRIG*2-1 downto 0) of iq_buf_data;
+  type rbcp_read_group_array is array (0 to N_RBCP_MUX_GROUP-1) of iq_buf_data;
   subtype trig_time_type is std_logic_vector(15 downto 0);  -- 0 to 1023
   type trig_time_array is array (N_CH_TRIG*2-1 downto 0) of trig_time_type;
   type trig_cond_array is array (N_CH_TRIG*2-1 downto 0) of boolean;
@@ -79,9 +82,9 @@ architecture Behavioral of trigger is
   signal trig_pos_int : natural range 0 to 2047;
 
   signal int_ch    : integer range 0 to 255;
-  signal int_byte  : integer range 0 to   7;
+  signal int_byte  : integer range 0 to  15;
   signal int_ch_dec   : integer range 0 to 255;
-  signal int_byte_dec : integer range 0 to 7;
+  signal int_byte_dec : integer range 0 to 15;
   signal sel_ctl_reg      : std_logic;
   signal sel_trig_pos_reg : std_logic;
   signal sel_thre_cnt_reg : std_logic;
@@ -90,6 +93,26 @@ architecture Behavioral of trigger is
   signal sel_th_min_b_reg : std_logic;
   signal sel_th_max_a_reg : std_logic;
   signal sel_th_max_b_reg : std_logic;
+
+  -- Pipeline the large per-channel RBCP mux.  A flat 128-entry read mux and
+  -- its write decoder do not meet the 250 MHz ADC-domain clock at 64 channels.
+  signal rbcp_read_groups       : rbcp_read_group_array;
+  signal rbcp_read_word         : iq_buf_data;
+  signal rbcp_read_group_index  : integer range 0 to N_RBCP_MUX_GROUP-1;
+  signal rbcp_read_byte_stage1  : integer range 0 to 7;
+  signal rbcp_read_byte_stage2  : integer range 0 to 7;
+  signal rbcp_read_enable_stage1 : std_logic;
+  signal rbcp_read_enable_stage2 : std_logic;
+  signal rbcp_read_stage1_valid : std_logic;
+  signal rbcp_read_stage2_valid : std_logic;
+  signal rbcp_read_busy         : std_logic;
+
+  signal ch_enable_write_onehot : std_logic_vector(N_CH_TRIG*2-1 downto 0);
+  signal th_min_write_onehot    : std_logic_vector(N_CH_TRIG*2-1 downto 0);
+  signal th_max_write_onehot    : std_logic_vector(N_CH_TRIG*2-1 downto 0);
+  signal threshold_write_byte   : std_logic_vector(7 downto 0);
+  signal threshold_write_data   : std_logic_vector(7 downto 0);
+  signal ch_enable_write_data   : std_logic;
 
   -- internal signal
   signal enable    : std_logic;
@@ -415,6 +438,8 @@ begin
   int_ch   <= to_integer(unsigned(rbcp_addr_buf(15 downto 8)));
   int_byte <= to_integer(unsigned(rbcp_addr_buf( 3 downto 0)));
   RBCP_PROC : process(clk)
+    variable entry_index : natural range 0 to N_CH_TRIG*2-1;
+    variable lane_index  : natural range 0 to RBCP_MUX_GROUP_SIZE-1;
   begin
     if rising_edge(clk) then
       if rst = '1' then
@@ -427,12 +452,72 @@ begin
         th_min_buf <= (others => (others => '0'));
         th_max_buf <= (others => (others => '0'));
         thre_cnt  <= (others => '0');
+        rbcp_read_groups <= (others => (others => '0'));
+        rbcp_read_word <= (others => '0');
+        rbcp_read_group_index <= 0;
+        rbcp_read_byte_stage1 <= 0;
+        rbcp_read_byte_stage2 <= 0;
+        rbcp_read_enable_stage1 <= '0';
+        rbcp_read_enable_stage2 <= '0';
+        rbcp_read_stage1_valid <= '0';
+        rbcp_read_stage2_valid <= '0';
+        rbcp_read_busy <= '0';
+        ch_enable_write_onehot <= (others => '0');
+        th_min_write_onehot <= (others => '0');
+        th_max_write_onehot <= (others => '0');
+        threshold_write_byte <= (others => '0');
+        threshold_write_data <= (others => '0');
+        ch_enable_write_data <= '0';
 
       else
         rbcp_ack <= '0';
         rbcp_rd  <= (others => '0');
         sft_rst  <= '0';
         en_trig  <= '0';
+        rbcp_read_stage1_valid <= '0';
+        rbcp_read_stage2_valid <= rbcp_read_stage1_valid;
+        ch_enable_write_onehot <= (others => '0');
+        th_min_write_onehot <= (others => '0');
+        th_max_write_onehot <= (others => '0');
+        threshold_write_byte <= (others => '0');
+
+        -- Apply writes from registered one-hot decoders.  Each threshold
+        -- register now sees only a small local enable cone.
+        for entry in 0 to N_CH_TRIG*2-1 loop
+          if ch_enable_write_onehot(entry) = '1' then
+            ch_enable(entry) <= ch_enable_write_data;
+          end if;
+          for byte_index in 0 to 7 loop
+            if th_min_write_onehot(entry) = '1' and
+               threshold_write_byte(byte_index) = '1' then
+              th_min_buf(entry)((7-byte_index)*8 + 7 downto (7-byte_index)*8) <= threshold_write_data;
+            end if;
+            if th_max_write_onehot(entry) = '1' and
+               threshold_write_byte(byte_index) = '1' then
+              th_max_buf(entry)((7-byte_index)*8 + 7 downto (7-byte_index)*8) <= threshold_write_data;
+            end if;
+          end loop;
+        end loop;
+
+        -- Second and third stages of the per-channel read pipeline.
+        if rbcp_read_stage1_valid = '1' then
+          rbcp_read_word <= rbcp_read_groups(rbcp_read_group_index);
+          rbcp_read_byte_stage2 <= rbcp_read_byte_stage1;
+          rbcp_read_enable_stage2 <= rbcp_read_enable_stage1;
+        end if;
+        if rbcp_read_stage2_valid = '1' then
+          rbcp_ack <= '1';
+          if rbcp_read_enable_stage2 = '1' then
+            rbcp_rd(0) <= rbcp_read_word(0);
+          else
+            rbcp_rd <= rbcp_read_word((7-rbcp_read_byte_stage2)*8 + 7 downto
+                                      (7-rbcp_read_byte_stage2)*8);
+          end if;
+        end if;
+        if rbcp_read_busy = '1' and rbcp_read_stage1_valid = '0' and
+           rbcp_read_stage2_valid = '0' and rbcp_re_dec = '0' then
+          rbcp_read_busy <= '0';
+        end if;
 
         if sel_ctl_reg = '1' then
             if rbcp_we_dec = '1' then
@@ -479,11 +564,9 @@ begin
             if sel_enable_reg = '1' then
               if rbcp_we_dec = '1' then
                 rbcp_ack <= '1';
-                ch_enable(int_ch_dec*2+0) <= rbcp_wd_dec(0);
-                ch_enable(int_ch_dec*2+1) <= rbcp_wd_dec(0);
-              elsif rbcp_re_dec = '1' then
-                rbcp_ack <= '1';
-                rbcp_rd(0) <= ch_enable(int_ch_dec*2);
+                ch_enable_write_onehot(int_ch_dec*2+0) <= '1';
+                ch_enable_write_onehot(int_ch_dec*2+1) <= '1';
+                ch_enable_write_data <= rbcp_wd_dec(0);
               end if;
             end if;
 
@@ -491,10 +574,9 @@ begin
               if int_byte_dec < 8 then
                 if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_min_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
-                elsif rbcp_re_dec = '1' then
-                  rbcp_ack <= '1';
-                  rbcp_rd <= th_min_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
+                  th_min_write_onehot(int_ch_dec*2+0) <= '1';
+                  threshold_write_byte(int_byte_dec) <= '1';
+                  threshold_write_data <= rbcp_wd_dec;
                 end if;
               end if;
 
@@ -502,10 +584,9 @@ begin
               if int_byte_dec < 8 then
                 if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_min_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
-                elsif rbcp_re_dec = '1' then
-                  rbcp_ack <= '1';
-                  rbcp_rd <= th_min_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
+                  th_min_write_onehot(int_ch_dec*2+1) <= '1';
+                  threshold_write_byte(int_byte_dec) <= '1';
+                  threshold_write_data <= rbcp_wd_dec;
                 end if;
               end if;
 
@@ -513,10 +594,9 @@ begin
               if int_byte_dec < 8 then
                 if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_max_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
-                elsif rbcp_re_dec = '1' then
-                  rbcp_ack <= '1';
-                  rbcp_rd <= th_max_buf(int_ch_dec*2+0)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
+                  th_max_write_onehot(int_ch_dec*2+0) <= '1';
+                  threshold_write_byte(int_byte_dec) <= '1';
+                  threshold_write_data <= rbcp_wd_dec;
                 end if;
               end if;
 
@@ -524,13 +604,39 @@ begin
               if int_byte_dec < 8 then
                 if rbcp_we_dec = '1' then
                   rbcp_ack <= '1';
-                  th_max_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8) <= rbcp_wd_dec;
-                elsif rbcp_re_dec = '1' then
-                  rbcp_ack <= '1';
-                  rbcp_rd <= th_max_buf(int_ch_dec*2+1)((7-int_byte_dec)*8 + 7 downto (7-int_byte_dec)*8);
+                  th_max_write_onehot(int_ch_dec*2+1) <= '1';
+                  threshold_write_byte(int_byte_dec) <= '1';
+                  threshold_write_data <= rbcp_wd_dec;
                 end if;
               end if;
 
+            end if;
+
+            -- First read stage: select one of eight entries independently in
+            -- every group.  The following cycles select the group and byte.
+            if rbcp_re_dec = '1' and rbcp_read_busy = '0' and
+               (sel_enable_reg = '1' or int_byte_dec < 8) then
+              entry_index := int_ch_dec*2;
+              if sel_th_min_b_reg = '1' or sel_th_max_b_reg = '1' then
+                entry_index := entry_index + 1;
+              end if;
+              lane_index := entry_index mod RBCP_MUX_GROUP_SIZE;
+              rbcp_read_group_index <= entry_index / RBCP_MUX_GROUP_SIZE;
+              rbcp_read_byte_stage1 <= int_byte_dec mod 8;
+              rbcp_read_enable_stage1 <= sel_enable_reg;
+              rbcp_read_stage1_valid <= '1';
+              rbcp_read_busy <= '1';
+
+              for grp in 0 to N_RBCP_MUX_GROUP-1 loop
+                if sel_enable_reg = '1' then
+                  rbcp_read_groups(grp) <= (others => '0');
+                  rbcp_read_groups(grp)(0) <= ch_enable(grp*RBCP_MUX_GROUP_SIZE + lane_index);
+                elsif sel_th_min_a_reg = '1' or sel_th_min_b_reg = '1' then
+                  rbcp_read_groups(grp) <= th_min_buf(grp*RBCP_MUX_GROUP_SIZE + lane_index);
+                else
+                  rbcp_read_groups(grp) <= th_max_buf(grp*RBCP_MUX_GROUP_SIZE + lane_index);
+                end if;
+              end loop;
             end if;
           end if;
         end if;

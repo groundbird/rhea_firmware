@@ -6,6 +6,8 @@
 # Set the reference directory for source file relative paths (by default the value is script directory path)
 set origin_dir "."
 set use_open_net false
+set debug_8ch false
+set project_name_explicit false
 
 # Use origin directory path location variable, if specified in the tcl shell
 if { [info exists ::origin_dir_loc] } {
@@ -18,6 +20,7 @@ set _xil_proj_name_ "rhea-fpga"
 # Use project name variable, if specified in the tcl shell
 if { [info exists ::user_project_name] } {
   set _xil_proj_name_ $::user_project_name
+  set project_name_explicit true
 }
 
 variable script_file
@@ -36,6 +39,7 @@ proc print_help {} {
   puts "$script_file -tclargs \[--origin_dir <path>\]"
   puts "$script_file -tclargs \[--project_name <name>\]"
   puts "$script_file -tclargs \[--open-net\]"
+  puts "$script_file -tclargs \[--debug-8ch\]"
   puts "$script_file -tclargs \[--help\]\n"
   puts "Usage:"
   puts "Name                   Description"
@@ -48,6 +52,7 @@ proc print_help {} {
   puts "                       name is the name of the project from where this"
   puts "                       script was generated.\n"
   puts "\[--open-net\]           Build the single-client open TCP implementation.\n"
+  puts "\[--debug-8ch\]          Build open-net in a separate 8-channel project.\n"
   puts "\[--help\]               Print help information for this script"
   puts "-------------------------------------------------------------------------\n"
   exit 0
@@ -58,8 +63,9 @@ if { $::argc > 0 } {
     set option [string trim [lindex $::argv $i]]
     switch -regexp -- $option {
       "--origin_dir"   { incr i; set origin_dir [lindex $::argv $i] }
-      "--project_name" { incr i; set _xil_proj_name_ [lindex $::argv $i] }
+      "--project_name" { incr i; set _xil_proj_name_ [lindex $::argv $i]; set project_name_explicit true }
       "--open-net"     { set use_open_net true }
+      "--debug-8ch"    { set debug_8ch true; set use_open_net true }
       "--help"         { print_help }
       default {
         if { [regexp {^-} $option] } {
@@ -69,6 +75,10 @@ if { $::argc > 0 } {
       }
     }
   }
+}
+
+if {$debug_8ch && !$project_name_explicit} {
+  set _xil_proj_name_ "rhea-fpga-8ch"
 }
 
 # Set the directory path for the original project from where this script was exported
@@ -135,6 +145,28 @@ if {[string equal [get_filesets -quiet sources_1] ""]} {
 
 # Set 'sources_1' fileset object
 set obj [get_filesets sources_1]
+set rhea_pkg_file [file normalize "${origin_dir}/src/vhdl/rhea_pkg.vhd"]
+if {$debug_8ch} {
+  set generated_dir [file join $proj_dir generated]
+  file mkdir $generated_dir
+  set input_handle [open $rhea_pkg_file r]
+  set package_text [read $input_handle]
+  close $input_handle
+  foreach {from to} [list \
+      "constant N_CHANNEL_LOG2   : integer := 6;" "constant N_CHANNEL_LOG2   : integer := 3;" \
+      "constant N_CH_TRIG_LOG2   : integer := 6;" "constant N_CH_TRIG_LOG2   : integer := 3;" \
+      "constant N_CHANNEL_EN     : integer := 64;" "constant N_CHANNEL_EN     : integer := 8;"] {
+    if {[string first $from $package_text] < 0} {
+      error "Expected channel configuration line not found in rhea_pkg.vhd: $from"
+    }
+    set package_text [string map [list $from $to] $package_text]
+  }
+  set rhea_pkg_file [file join $generated_dir rhea_pkg.vhd]
+  set output_handle [open $rhea_pkg_file w]
+  puts -nonewline $output_handle $package_text
+  close $output_handle
+  puts "INFO: Generated 8-channel package: $rhea_pkg_file"
+}
 set network_files [list \
  [file normalize "${origin_dir}/src/net/gmii_rx_frame.v"] \
  [file normalize "${origin_dir}/src/net/gmii_tx_frame.v"] \
@@ -168,7 +200,7 @@ set files [concat $network_files [list \
  [file normalize "${origin_dir}/src/verilog/countup_man.v"] \
  [file normalize "${origin_dir}/src/verilog/squarewave_gen.v"] \
  [file normalize "${origin_dir}/src/verilog/uart_reader.v"] \
- [file normalize "${origin_dir}/src/vhdl/rhea_pkg.vhd"] \
+ $rhea_pkg_file \
  [file normalize "${origin_dir}/src/vhdl/adc.vhd"] \
  [file normalize "${origin_dir}/src/vhdl/dac.vhd"] \
  [file normalize "${origin_dir}/src/vhdl/data_transfer_to_sitcp.vhd"] \
@@ -201,8 +233,7 @@ set files [concat $network_files [list \
 add_files -norecurse -fileset $obj $files
 set_property FILE_TYPE {VHDL 2008} [get_files "${origin_dir}/src/vhdl/formatter.vhd"]
 
-set file "$origin_dir/src/vhdl/rhea_pkg.vhd"
-set file [file normalize $file]
+set file $rhea_pkg_file
 set file_obj [get_files -of_objects [get_filesets sources_1] [list "*$file"]]
 set_property -name "file_type" -value "VHDL" -objects $file_obj
 

@@ -70,6 +70,13 @@ architecture Behavioral of adc is
   signal rst_buf_a  : adc_data_half;
   signal rst_buf_b  : adc_data_half;
 
+  -- Keep one reset register per IDDRE1.  If these equivalent registers are
+  -- merged, a single reset net spans all ADC input sites and consumes most of
+  -- the half-cycle recovery margin of the opposite-edge IDDR register.
+  attribute DONT_TOUCH : string;
+  attribute DONT_TOUCH of rst_buf_a : signal is "TRUE";
+  attribute DONT_TOUCH of rst_buf_b : signal is "TRUE";
+
   type delay_array is array (0 to  ADC_DATA_WIDTH/2-1) of std_logic_vector(8 downto 0);
   signal delay_array_a_in  : delay_array;
   signal delay_array_b_in  : delay_array;

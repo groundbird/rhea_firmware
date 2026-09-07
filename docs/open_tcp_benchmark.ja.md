@@ -82,24 +82,35 @@ AXKU042ではPC側ツールからRBCPの`STB1`識別、統計snapshot、送信en
 netlistを読み込まずに独自coreを選べる。静的MAC/IP、TCP port 24、RBCP/UDP port 4660を用い、
 EEPROMの読出し結果には依存しない。
 
-配置配線時間を短縮するため、チャンネル定数を一時的に64から8へ変更してRHEA全体を実装した。
-`data_transfer_to_sitcp`の250 MHz入力へ1段pipelineを追加した結果、post-route phys-opt後の
-bitstream生成まで成功した。RBCP追加後のdebug buildもsetup WNS +0.006 ns、hold WHS +0.031 nsで完了した。
+64チャンネルではtriggerのRBCP threshold readbackが128要素のflat muxとなり、最初の実装は
+WNS -0.784 ns、TNS -192.447 nsで失敗した。readを8要素、16 group、byteの3段に分け、write側も
+channelとbyteをone-hot registerへ一度受けてから更新するようにした。channel 0、37、63のA/B threshold、
+enable、隣接channel分離、遅延ACKをtrigger単体xsimで確認した。修正後の64チャンネル実装は
+WNS +0.036 ns、WHS +0.030 nsでbitstream生成まで成功した。
 
-| 項目 | RHEA全体（8チャンネルdebug build） | 独自network core階層 |
-|---|---:|---:|
-| LUT | 26,944 | 3,466 |
-| FF | 38,063 | 1,653 |
-| RAMB36 / RAMB18 | 121 / 1 | 8 / 0 |
-| DSP | 102 | - |
+ADC入力では、ビットごとのIDDRE1 reset FFがVivadoに統合されて長いreset netになっていたため、
+`DONT_TOUCH`で14個を保持した。最悪recovery pathの始終点は同じADC bitの専用FFになっている。
 
-この実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
+8チャンネルdebug buildは通常の64チャンネルpackageを編集せず、`--debug-8ch`で専用packageと
+`rhea-fpga-8ch` projectを生成できる。64チャンネル実装と並行して生成した最終版もtiming violation 0である。
+
+| 項目 | RHEA 8チャンネル | RHEA 64チャンネル | 独自network core（64ch内） |
+|---|---:|---:|---:|
+| LUT | 26,843 | 88,196 | 3,479 |
+| FF | 35,216 | 261,819 | 1,750 |
+| RAMB36 / RAMB18 | 121 / 48 | 457 / 1 | 8 / 0 |
+| DSP | 102 | 550 | 0 |
+| post-route WNS / WHS | +0.008 / +0.030 ns | +0.036 / +0.030 ns | - |
+
+両実装でVivadoが報告したDRCはwarningとadvisoryのみで、timing violationはない。CDC reportには、
 RGMII入力IDDR、非同期reset、およびtoggleで安定保持bufferを渡す送信経路にCritical/Warning判定が残る。
 送信経路はrequest toggleの2段同期中からdone toggleが戻るまでbufferを保持する設計で実機試験済みだが、
 運用判定までにCDC制約またはVivadoが認識できる構造へ整理する。
 
-ソースのチャンネル定数は64へ戻してある。現在の`rhea.bit`は8チャンネルdebug buildの生成物であり、
-最終のRBCP payload同期段を追加する直前の版なのでFPGAへは書き込んでいない。64チャンネル版の配置配線確認は次の段階で行う。
+通常ソースのチャンネル定数は64である。64チャンネルbitstreamは
+`rhea-fpga/rhea-fpga.runs/impl_1/rhea.bit`、独立8チャンネルbitstreamは
+`rhea-fpga-8ch/rhea-fpga-8ch.runs/impl_1/rhea.bit`に生成される。どちらも最終RBCP CDC版を含む。
+FPGA上は引き続きstandalone RBCP benchmark版であり、これらのRHEA統合版はまだ書き込んでいない。
 
 ## 再現方法
 
@@ -117,6 +128,25 @@ vivado -mode batch -nolog -nojournal \
   -source rhea-fpga.tcl -tclargs --open-net
 vivado -mode batch -nolog -nojournal \
   -source vivado/build_axku042_open_rhea.tcl
+```
+
+64チャンネル設定を変えずに、独立した8チャンネルdebug buildを生成する。
+
+```bash
+vivado -mode batch -nolog -nojournal \
+  -source rhea-fpga.tcl -tclargs --debug-8ch
+vivado -mode batch -nolog -nojournal \
+  -source vivado/build_axku042_open_rhea.tcl \
+  -tclargs --project-name rhea-fpga-8ch
+```
+
+64チャンネルの長い実装を分けて実行する場合は、合成後にcheckpointを再利用する。
+
+```bash
+vivado -mode batch -nolog -nojournal \
+  -source vivado/build_axku042_open_rhea.tcl -tclargs --synth-only
+vivado -mode batch -nolog -nojournal \
+  -source vivado/build_axku042_open_rhea.tcl -tclargs --reuse-synth
 ```
 
 USB JTAG版Docker内から揮発性設定へ書き込む。
@@ -138,9 +168,9 @@ python3 tools/sitcp_benchmark.py --seconds 30 --warmup 2
 
 このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送と32 KiB送信保持は実装したが、RTTによるRTO更新、
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
-200 MHzのSiTCP互換送信境界とRHEA全体への接続、8チャンネルdebug buildまでは完了した。
+200 MHzのSiTCP互換送信境界、RBCP、8/64チャンネルRHEAの配置配線までは完了した。
 
-次段では最終RBCP CDC版で64チャンネルRHEAを配置配線し、実機でRHEAのレジスタマップ、データ形式、
-連続転送を確認する。RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
+次段では8チャンネルRHEA版を実機へ書き込み、RHEAのレジスタマップ、データ形式、連続転送を確認する。
+その後64チャンネル版でも同じ試験を行う。RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
 並行して接続終了の全経路と重複ACKを強化する。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。

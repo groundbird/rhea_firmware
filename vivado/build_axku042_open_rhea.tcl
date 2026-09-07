@@ -1,17 +1,29 @@
 set script_dir [file normalize [file dirname [info script]]]
 set repo_root [file normalize [file join $script_dir ..]]
-set project_dir [file join $repo_root rhea-fpga]
-set project_file [file join $project_dir rhea-fpga.xpr]
-set report_dir [file join $project_dir reports]
+set project_name "rhea-fpga"
 set reuse_synth false
+set synth_only false
 
-foreach arg $argv {
+for {set i 0} {$i < [llength $argv]} {incr i} {
+    set arg [lindex $argv $i]
     if {$arg eq "--reuse-synth"} {
         set reuse_synth true
+    } elseif {$arg eq "--synth-only"} {
+        set synth_only true
+    } elseif {$arg eq "--project-name"} {
+        incr i
+        if {$i >= [llength $argv]} {
+            error "--project-name requires a value"
+        }
+        set project_name [lindex $argv $i]
     } else {
         error "Unknown option: $arg"
     }
 }
+
+set project_dir [file join $repo_root $project_name]
+set project_file [file join $project_dir ${project_name}.xpr]
+set report_dir [file join $project_dir reports]
 
 if {![file exists $project_file]} {
     error "Open-net project not found. Run rhea-fpga.tcl -tclargs --open-net first."
@@ -34,6 +46,16 @@ if {!$reuse_synth} {
 }
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} {
     error "Synthesis failed: [get_property STATUS [get_runs synth_1]]"
+}
+
+if {$synth_only} {
+    open_run synth_1
+    file mkdir $report_dir
+    report_utilization -hierarchical -file [file join $report_dir synth_utilization.rpt]
+    report_timing_summary -report_unconstrained -file [file join $report_dir synth_timing.rpt]
+    puts "RHEA open-net synthesis checkpoint: [file join $project_dir ${project_name}.runs synth_1 rhea.dcp]"
+    puts "Synthesis reports: $report_dir"
+    exit 0
 }
 
 set impl_run [get_runs impl_1]
