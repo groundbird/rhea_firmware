@@ -69,10 +69,10 @@ registerを外部CDCから除外した。8チャンネル実機では異種ア�
 
 64チャンネル初回実装ではtriggerのRBCP threshold read/write decodeが250 MHzを満たさず、WNS -0.784 nsだった。
 read muxを3段pipeline、write decodeをone-hot register化し、trigger単体xsimでchannel 0、37、63のread/writeを確認した。
-最終CDC版の64チャンネルRHEAは88,196 LUT、261,819 FF、457 RAMB36、1 RAMB18、550 DSP、
-setup WNS +0.036 ns、hold WHS +0.030 nsでbitstream生成まで完了した。
-8チャンネル版も通常packageから独立した`--debug-8ch` profileとして残し、最終RBCP CDC版は26,863 LUT、
-37,284 FF、120 RAMB36、20 RAMB18、102 DSP、setup WNS +0.149 ns、hold WHS +0.030 nsである。
+最終CDC/mux版の64チャンネルRHEAは88,263 LUT、262,045 FF、456 RAMB36、550 DSP、
+setup WNS +0.149 ns、hold WHS +0.030 nsでbitstream生成と実機試験まで完了した。
+8チャンネル版も通常packageから独立した`--debug-8ch` profileとして残し、26,918 LUT、
+35,391 FF、120 RAMB36、47 RAMB18、102 DSP、setup WNS +0.035 ns、hold WHS +0.030 nsである。
 以下の汎用HLS TOE調査内容は、将来10 GbE以上や複数接続が必要になった場合の比較資料として残す。
 
 第一候補として[fpga-network-stack](https://github.com/fpgasystems/fpga-network-stack)のTOE（TCP処理エンジン）を単独評価する。同プロジェクトは10–100 Gbit/s向けで、AXI4-Stream、接続数設定、MSS設定、送信要求・許可・データ転送のAPIを持つ。RHEAにそのまま接続できる実績は今回確認できていない。
