@@ -98,7 +98,7 @@ set_false_path -from [get_ports IIC_MAIN_SDA]
 set_property PACKAGE_PIN W23  [get_ports clk_ab_p]
 set_property PACKAGE_PIN W24  [get_ports clk_ab_n]
 set_property IOSTANDARD LVDS [get_ports {clk_ab_p clk_ab_n}]
-create_clock -name clk_ab_p -period 4.000 [get_ports clk_ab_p]
+create_clock -name clk_ab_p -period 5.000 [get_ports clk_ab_p]
 
 set_property PACKAGE_PIN AA24 [get_ports {cha_p[0]}]
 set_property PACKAGE_PIN AA25 [get_ports {cha_n[0]}]
