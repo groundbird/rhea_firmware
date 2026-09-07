@@ -106,6 +106,11 @@ bus error、timeout、retryすべて0だった。実際の`health_check.py diagn
 registerでも発生するため、残る問題はRGMIIではなくRHEA内部のRBCP応答経路にある。ACK timeoutを
 100 msから5 msへ短縮し、正常な約0.3 msのSPIアクセスを保ったまま、欠落時の待ち時間を抑えた。
 
+8チャンネルIQ formatterを119 byte/packet、`accumulation=635`に設定した実データ経路では、
+5秒間に187,401,220 byte、**299.843 Mbps**を受信した。これは200 MHz / 635 × 119 byteの
+source rateと一致する。1,889,730 packetのheader、footer、40 bit timestamp連続性を検査して
+error 0、送信後もIQ active、FIFO error 0だった。
+
 | 項目 | RHEA 8チャンネル | RHEA 64チャンネル | 独自network core（64ch内） |
 |---|---:|---:|---:|
 | LUT | 27,003 | 88,196 | 3,479 |
@@ -180,14 +185,20 @@ RBCPの識別・統計アクセスとTCPをまとめて測定する。
 python3 tools/sitcp_benchmark.py --seconds 30 --warmup 2
 ```
 
+8チャンネルRHEA統合版のIQ streamを約300 Mbpsに設定し、packet形式とtimestampも検査する。
+
+```bash
+python3 tools/rhea_stream_benchmark.py --seconds 5 --warmup 1
+```
+
 ## 次に必要な機能
 
 このbitstreamは性能検証用プロトタイプである。固定1秒RTOによる再送と32 KiB送信保持は実装したが、RTTによるRTO更新、
 指数バックオフ、輻輳ウィンドウの増減、zero-window probe、順不同受信、TCP sequenceの周回比較は未実装である。
 200 MHzのSiTCP互換送信境界、RBCP、8/64チャンネルRHEAの配置配線までは完了した。
 
-次段では8チャンネルRHEA版の測定データ源を設定し、データ形式と連続TCP転送を確認する。
-その後64チャンネル版でも同じ試験を行う。RHEA内部で約0.8%残るRBCP ACK欠落も追跡する。
+次段では64チャンネル版でも同じ実データ試験を行い、長時間連続転送を確認する。
+RHEA内部で約0.8%残るRBCP ACK欠落も追跡する。
 RBCP受信UDP checksum検査と処理中のTCP ACK受信余裕も追加する。
 並行して接続終了の全経路と重複ACKを強化する。LUTはSiTCPより増えているため、
 ARP/ICMP/TCPのヘッダー生成muxと分散RAMを整理し、BRAM使用との交換で削減する。
